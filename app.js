@@ -1,6 +1,6 @@
 (function(){
 "use strict";
-const VERSAO="28/10/2026 09:50";
+const VERSAO="12/11/2026 11:30";
 const $=id=>document.getElementById(id);
 const CLIMAS=["☀️ Bom","⛅ Nublado","🌧️ Chuva","⛈️ Impraticável"];
 const MO=[["m_lid","Líder"],["m_mon","Montador"],["m_aux","Auxiliar"],["m_out","Outros"]];
@@ -508,6 +508,8 @@ async function carregarListaObras(){
 const CENTRAL=window.CENTRAL||{};
 const temCentral=()=>!!(CENTRAL.url&&CENTRAL.chave);
 let sincronizando=false;
+let envioEstado="",envioAte=0;   // estado do botão "Enviar agora"
+const pendentes=()=>temCentral()?registros.filter(r=>r.central!=="ok"&&r.central!=="recusado").length:0;
 async function postCentral(o){
   const s=lerSessao();if(!s)throw new Error("sem login");
   const r=await fetch(CENTRAL.url,{method:"POST",headers:{"Content-Type":"text/plain;charset=utf-8"},body:JSON.stringify({...o,chave:CENTRAL.chave,token:s.token})});
@@ -531,9 +533,12 @@ async function enviarPdfCentral(r){
   const b64=(await blobToData(await gerarPdf([r]))).split(",")[1];
   await postCentral({acao:"pdf",uid:r._id,b64});
 }
-async function sincronizar(){
+// uma única rodada de envio por vez: quem chama durante o envio espera a mesma rodada
+let syncP=null;
+function sincronizar(){if(syncP)return syncP;const antes=pendentes();syncP=sincronizarRodada().finally(()=>{syncP=null;if(antes&&!pendentes()){envioEstado="ok";envioAte=Date.now()+5000;render();setTimeout(render,5100);}});return syncP;}
+async function sincronizarRodada(){
   if(!temCentral()||sincronizando||!navigator.onLine||!lerSessao())return;
-  sincronizando=true;let erro="";
+  sincronizando=true;let erro="";render();
   try{
     const meus=r=>doResponsavel(r);
     for(const r of registros.filter(x=>x.central!=="ok"&&x.central!=="recusado"&&meus(x))){
@@ -859,7 +864,14 @@ let thumbUrls=[];
 function render(){
   const pend=temCentral()?registros.filter(r=>r.central!=="ok"&&r.central!=="recusado").length:0;
   const st=$("sync-st");
-  if(st){st.hidden=!pend;st.querySelector("span").textContent=pend+" RDO"+(pend>1?"s":"")+" aguardando envio à central do supervisor"+(ultimoErroCentral?" (último erro: "+ultimoErroCentral+")":navigator.onLine?"":" (sem internet)")+".";}
+  if(st){st.hidden=!pend;st.querySelector("span").textContent=pend+" RDO"+(pend>1?"s":"")+" aguardando envio à central do supervisor"+(ultimoErroCentral?" (último erro: "+(/failed to fetch|networkerror|load failed/i.test(ultimoErroCentral)?"sem conexão com a central":ultimoErroCentral)+")":navigator.onLine?"":" (sem internet)")+".";
+    // botão "Enviar agora" muda de aparência para o técnico ver que o envio foi pedido
+    const b=$("b-sync");st.classList.remove("sync-ok");
+    if(pend&&(sincronizando||envioEstado==="enviando")){b.disabled=true;b.className="btn sync-enviando";b.textContent="⏳ Enviando…";}
+    else if(!pend&&envioEstado==="ok"&&Date.now()<envioAte){st.hidden=false;st.classList.add("sync-ok");st.querySelector("span").textContent="Tudo enviado à central do supervisor.";b.disabled=true;b.className="btn sync-feito";b.textContent="✓ Enviado";}
+    else if(pend&&envioEstado==="offline"&&Date.now()<envioAte){b.disabled=true;b.className="btn sync-enviando";b.textContent="Sem internet: envia sozinho quando voltar";}
+    else if(pend&&envioEstado==="falha"&&Date.now()<envioAte){b.disabled=false;b.className="btn pri";b.textContent="Não enviou. Tentar de novo";}
+    else{b.disabled=false;b.className="btn pri";b.textContent="Enviar agora";}}
   const uniq=k=>[...new Set(registros.map(r=>r[k]).filter(Boolean))].sort((a,b)=>String(a).localeCompare(String(b),"pt"));
   $("ids").innerHTML=uniq("idobra").map(o=>`<option value="${esc(o)}">`).join("");
   $("obras").innerHTML=uniq("obra").map(o=>`<option value="${esc(o)}">`).join("");
@@ -996,5 +1008,10 @@ $("versao").textContent="Versão "+VERSAO;
   sincronizar();
 })();
 window.addEventListener("online",carregarListaObras);
-$("b-sync").onclick=()=>sincronizar();
+$("b-sync").onclick=async()=>{
+  if(!navigator.onLine){envioEstado="offline";envioAte=Date.now()+5000;render();setTimeout(render,5100);return;}
+  envioEstado="enviando";render();
+  try{await sincronizar();}catch(e){}
+  envioEstado=pendentes()?"falha":"ok";envioAte=Date.now()+5000;render();setTimeout(render,5100);
+};
 })();

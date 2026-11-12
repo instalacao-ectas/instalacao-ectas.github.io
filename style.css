@@ -164,3 +164,8 @@ header .wrap{position:relative}
 }
 #tab-rdo tr.marcada td,#tab-res tr.marcada td{background:rgba(179,38,30,.08)}
 #tab-rdo .col-sel,#tab-res .col-sel{cursor:pointer}
+
+/* botão Enviar agora: estados depois do toque */
+#b-sync.sync-enviando{background:#4A5B68;border-color:#4A5B68;color:#FFFFFF;cursor:progress;opacity:1}
+#b-sync.sync-feito{background:var(--wa);border-color:var(--wa);color:#FFFFFF;opacity:1}
+.notice.sync-ok{background:var(--ok-bg);font-weight:600}
