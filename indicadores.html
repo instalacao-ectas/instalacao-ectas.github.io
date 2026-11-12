@@ -1,0 +1,233 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Indicadores · Diário de Obra</title>
+<meta name="theme-color" content="#002B49">
+<link rel="icon" href="icon-192.png">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Montserrat:wght@300;400;500;600;700;800&display=swap">
+<link rel="stylesheet" href="style.css?v=26">
+<style>
+:root{--s1:#0073A8;--s2:#D08A1E;--s3:#2BA39B;--s4:#8A63B8;--grid:#E3E9EE;
+  --ok:#1F9D55;--ok-soft:#DDF3E6;--falta:#C4320A;--falta-soft:#FDE6DE;--just:#B7791F;--just-soft:#FBF0D9;--chuva:#2B6CB0;--neutro:#EEF2F5;--alerta:#B54708;--alerta-soft:#FEF3E2}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){--s1:#3A8FD0;--s2:#C07F26;--s3:#279888;--s4:#9A78D0;--grid:#24425A;
+  --ok:#3CCB7F;--ok-soft:#173D2B;--falta:#F2876A;--falta-soft:#45231A;--just:#E6B65C;--just-soft:#3B2F15;--chuva:#7AB2F0;--neutro:#163047;--alerta:#F5B061;--alerta-soft:#3A2A12}}
+:root[data-theme="dark"]{--s1:#3A8FD0;--s2:#C07F26;--s3:#279888;--s4:#9A78D0;--grid:#24425A;
+  --ok:#3CCB7F;--ok-soft:#173D2B;--falta:#F2876A;--falta-soft:#45231A;--just:#E6B65C;--just-soft:#3B2F15;--chuva:#7AB2F0;--neutro:#163047;--alerta:#F5B061;--alerta-soft:#3A2A12}
+.wide{max-width:1180px}
+main .wrap.wide{padding-block:16px 48px}
+.login{max-width:420px;margin:40px auto;background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:20px;display:flex;flex-direction:column;gap:12px}
+.login h2{margin:0;font-size:1.1rem}
+.previa{display:flex;gap:10px;align-items:center;flex-wrap:wrap;background:var(--alerta-soft);border:1px solid var(--alerta);color:var(--fg);border-radius:12px;padding:10px 14px;font-size:.85rem}
+.previa b{color:var(--alerta)}
+.filtros{display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px}
+.filtros label{flex:1 1 160px}
+.filtros .btn{padding:10px 14px;font-size:.9rem}
+.abas{display:flex;gap:4px;background:var(--chip);border-radius:10px;padding:4px;overflow-x:auto}
+.abas button{flex:1 0 auto;font:inherit;font-weight:700;font-size:.9rem;border:0;border-radius:8px;padding:10px 12px;background:transparent;color:var(--muted);cursor:pointer;white-space:nowrap}
+.abas button[aria-selected="true"]{background:var(--surface);color:var(--fg);box-shadow:0 1px 2px rgba(0,0,0,.08)}
+.abas .cont{display:inline-block;min-width:20px;margin-left:6px;padding:0 6px;border-radius:999px;background:var(--alerta);color:#FFFFFF;font-size:.75rem}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px}
+.kpi{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px 14px;display:flex;flex-direction:column;gap:3px;min-width:0}
+.kpi>span:first-child{font-size:.72rem;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.05em}
+.kpi b{font-size:1.65rem;font-weight:800;font-variant-numeric:tabular-nums;line-height:1.1}
+.kpi small{font-size:.76rem;color:var(--muted)}
+.kpi .var{font-size:.76rem;font-weight:700}
+.var.sobe{color:var(--ok)}.var.desce{color:var(--falta)}.var.igual{color:var(--muted)}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:14px;display:flex;flex-direction:column;gap:10px;min-width:0}
+.card h2{margin:0;font-size:.8rem;letter-spacing:.08em;text-transform:uppercase;color:var(--accent)}
+.card .sub{margin:-4px 0 0;font-size:.8rem;color:var(--muted)}
+.topo{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}
+.tabela{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-size:.85rem}
+th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);white-space:nowrap}
+th{font-size:.72rem;text-transform:uppercase;letter-spacing:.05em;color:var(--muted)}
+td.n,th.n{text-align:right;font-variant-numeric:tabular-nums}
+tbody tr.clic{cursor:pointer}
+tbody tr.clic:hover{background:var(--chip)}
+.barra{display:flex;align-items:center;gap:8px;min-width:150px}
+.barra .t{flex:1;height:8px;border-radius:999px;background:var(--neutro);overflow:hidden;display:flex}
+.barra .t i{display:block;height:100%}
+.barra b{font-size:.8rem;font-variant-numeric:tabular-nums;min-width:38px;text-align:right}
+.legenda{display:flex;gap:14px;flex-wrap:wrap;font-size:.78rem;color:var(--muted)}
+.legenda i{display:inline-block;width:11px;height:11px;border-radius:3px;margin-right:5px;vertical-align:-1px}
+.chart{position:relative;overflow-x:auto}
+.chart svg{display:block}
+.chart text{fill:var(--muted);font-size:11px;font-family:var(--font)}
+.tip{position:absolute;pointer-events:none;background:var(--surface);color:var(--fg);border:1px solid var(--line);border-radius:8px;padding:8px 10px;font-size:.8rem;box-shadow:0 4px 14px rgba(0,0,0,.15);white-space:nowrap;z-index:2}
+/* ficha da obra */
+.ficha-topo{display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap}
+.ficha-topo label{flex:1 1 260px}
+.mesnav{display:flex;align-items:center;gap:6px}
+.mesnav button{font:inherit;font-weight:700;border:1px solid var(--line);background:var(--surface);color:var(--fg);border-radius:8px;width:38px;height:38px;cursor:pointer}
+.mesnav b{min-width:140px;text-align:center;text-transform:capitalize}
+.grid-ficha{display:grid;grid-template-columns:minmax(0,1fr);gap:14px}
+@media (max-width:520px){.abas button{padding:9px 8px;font-size:.84rem}}
+@media (min-width:900px){.grid-ficha{grid-template-columns:minmax(0,420px) minmax(0,1fr)}}
+.cal{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:4px}
+.cal .sem{font-size:.7rem;font-weight:700;color:var(--muted);text-align:center;text-transform:uppercase;padding-bottom:2px}
+.cal .d{position:relative;aspect-ratio:1/1;border-radius:8px;background:var(--neutro);display:flex;flex-direction:column;justify-content:space-between;padding:5px 6px;font-size:.8rem;font-variant-numeric:tabular-nums;border:1px solid transparent;min-width:0}
+.cal .d.vazio{background:transparent}
+.cal .d .ef{font-size:.7rem;font-weight:700;align-self:flex-end}
+.cal .d .ic{position:absolute;top:4px;right:5px;display:flex;gap:2px;font-size:.62rem;line-height:1}
+.cal .d.ok{background:var(--ok-soft);border-color:var(--ok)}
+.cal .d.ok .ef{color:var(--ok)}
+.cal .d.falta{background:var(--falta-soft);border-color:var(--falta);color:var(--falta)}
+.cal .d.just{background:var(--just-soft);border-color:var(--just);border-style:dashed}
+.cal .d.fds{opacity:.55}
+.cal .d.futuro{opacity:.4}
+.cal .d.hoje{outline:2px solid var(--accent);outline-offset:1px}
+.cal button.d{font:inherit;color:inherit;cursor:pointer;text-align:left}
+.cal button.d:hover{filter:brightness(.97);box-shadow:0 1px 4px rgba(0,0,0,.12)}
+.dot{display:inline-block;width:7px;height:7px;border-radius:50%}
+.minis{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px}
+.mini{border:1px solid var(--line);border-radius:10px;padding:8px 10px}
+.mini>span:first-child{display:block;font-size:.68rem;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
+.mini b{font-size:1.15rem;font-variant-numeric:tabular-nums}
+.galeria{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px}
+.galeria figure{margin:0;display:flex;flex-direction:column;gap:4px;cursor:pointer}
+.galeria .ph{aspect-ratio:4/3;background:var(--chip);border-radius:8px;overflow:hidden;display:grid;place-items:center;font-size:.75rem;color:var(--muted)}
+.galeria img{width:100%;height:100%;object-fit:cover;display:block}
+.galeria figcaption{font-size:.75rem;color:var(--muted);overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+/* ocorrências */
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chipf{font:inherit;font-size:.8rem;font-weight:600;border:1px solid var(--line);background:var(--surface);color:var(--fg);border-radius:999px;padding:5px 11px;cursor:pointer}
+.chipf[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:var(--accent-fg)}
+.chipf .n{opacity:.75;margin-left:4px;font-variant-numeric:tabular-nums}
+.oc{border:1px solid var(--line);border-left:4px solid var(--alerta);border-radius:10px;padding:10px 12px;display:flex;flex-direction:column;gap:6px}
+.oc.tratada{border-left-color:var(--ok);opacity:.7}
+.oc .cab{display:flex;gap:8px;flex-wrap:wrap;align-items:baseline;font-size:.82rem;color:var(--muted)}
+.oc .cab b{color:var(--fg);font-size:.88rem}
+.oc .txt{white-space:pre-wrap;font-size:.9rem}
+.oc .pe{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.tag{font-size:.72rem;font-weight:700;border-radius:999px;padding:2px 8px;background:var(--chip);color:var(--fg)}
+.tag.seg{background:var(--falta-soft);color:var(--falta)}
+.oc .acoes{margin-left:auto;display:flex;gap:8px;align-items:center}
+.btn-tratar{font:inherit;font-size:.8rem;font-weight:700;border:1px solid var(--ok);background:var(--surface);color:var(--ok);border-radius:999px;padding:5px 12px;cursor:pointer}
+.btn-tratar:hover{background:var(--ok);color:#FFFFFF}
+.linkbtn{color:var(--accent);font-weight:600;font-size:.85rem;background:none;border:0;cursor:pointer;font-family:inherit;padding:0}
+.vazio-msg{font-size:.88rem;color:var(--muted);padding:6px 0}
+/* modal do RDO */
+.modal{position:fixed;inset:0;background:rgba(0,20,35,.55);display:flex;align-items:flex-start;justify-content:center;padding:16px;overflow:auto;z-index:20}
+.modal .box{background:var(--surface);border-radius:14px;max-width:760px;width:100%;padding:18px;display:flex;flex-direction:column;gap:12px}
+.modal h3{margin:0;font-size:1.05rem}
+.det{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:8px 14px;font-size:.88rem}
+.det span{display:block;font-size:.7rem;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);font-weight:700}
+.txt{white-space:pre-wrap;font-size:.9rem}
+[hidden]{display:none!important}
+</style>
+</head>
+<body>
+<header class="band">
+  <div class="wrap wide">
+    <div class="logo"><img src="logo.png" alt="ECTAS Saneamento"></div>
+    <div>
+      <h1>Indicadores das obras</h1>
+      <p>Diário de Obra · números tirados dos RDOs da equipe</p>
+    </div>
+  </div>
+  <div class="stripe"></div>
+</header>
+
+<main>
+<div class="wrap wide">
+  <form class="login" id="v-login" autocomplete="off">
+    <h2>Entrar</h2>
+    <p class="status" style="margin:0">Use a mesma senha do Painel do Diário de Obra.</p>
+    <label>Senha do painel<input id="senha" type="password" autocomplete="current-password"></label>
+    <button type="submit" class="btn pri" id="b-entrar">Entrar</button>
+    <div class="msg" id="msg-login" role="status"></div>
+    <p class="status" style="margin:0"><a href="supervisor.html">Voltar ao Painel do Supervisor</a></p>
+  </form>
+
+  <div id="v-painel" hidden style="display:flex;flex-direction:column;gap:14px">
+    <div class="previa"><b>Prévia</b><span>Esta tela ainda não está no painel. Os números são reais, tirados dos RDOs da central.</span><span style="margin-left:auto;display:flex;gap:14px"><a class="linkbtn" href="supervisor.html">Voltar ao painel</a><button type="button" class="linkbtn" id="b-sair">Sair</button></span></div>
+
+    <div class="filtros">
+      <label>Período<select id="f-per">
+        <option value="semana">Esta semana</option><option value="semana-1">Semana passada</option>
+        <option value="mes" selected>Este mês</option><option value="mes-1">Mês passado</option>
+        <option value="30">Últimos 30 dias</option><option value="90">Últimos 90 dias</option><option value="pers">Personalizado</option></select></label>
+      <label id="l-de" hidden>De<input id="f-de" type="date" class="num"></label>
+      <label id="l-ate" hidden>Até<input id="f-ate" type="date" class="num"></label>
+      <label>Obra<select id="f-obra"><option value="">Todas as obras</option></select></label>
+      <label>Encarregado<select id="f-resp"><option value="">Todos</option></select></label>
+      <button type="button" class="btn sec" id="b-atualizar">Atualizar</button>
+    </div>
+    <div class="status" id="periodo-txt"></div>
+    <div class="msg" id="msg-atu" role="status"></div>
+
+    <nav class="abas" role="tablist">
+      <button type="button" role="tab" data-aba="geral" aria-selected="true">Visão geral</button>
+      <button type="button" role="tab" data-aba="obra" aria-selected="false">Ficha da obra</button>
+      <button type="button" role="tab" data-aba="ocor" aria-selected="false">Ocorrências<span class="cont" id="n-ocor" hidden></span></button>
+    </nav>
+
+    <section id="a-geral" style="display:flex;flex-direction:column;gap:14px">
+      <div class="kpis" id="kpis"></div>
+      <section class="card">
+        <h2>Situação por obra</h2>
+        <p class="sub">Dias úteis (segunda a sexta) com RDO no período. Clique numa obra para abrir a ficha.</p>
+        <div class="legenda"><span><i style="background:var(--ok)"></i>Com RDO</span><span><i style="background:var(--just)"></i>Sem RDO, ciente</span><span><i style="background:var(--falta)"></i>Sem RDO</span></div>
+        <div class="tabela"><table><thead><tr><th>Obra</th><th>Dias úteis com RDO</th><th class="n">RDOs</th><th class="n">Homem-hora</th><th class="n">Dias de chuva</th><th class="n">Ocorrências</th><th>Último RDO</th></tr></thead><tbody id="tb-obras"></tbody></table></div>
+      </section>
+      <section class="card">
+        <h2>Homem-hora por semana</h2>
+        <p class="sub">Últimas 12 semanas até o fim do período. Soma de pessoas × horas de expediente (descontada 1h de almoço quando o expediente passa de 6h).</p>
+        <div class="legenda" id="leg-sem"></div>
+        <div class="chart" id="g-sem"></div>
+      </section>
+    </section>
+
+    <section id="a-obra" hidden style="display:flex;flex-direction:column;gap:14px">
+      <section class="card">
+        <div class="ficha-topo">
+          <label>Obra<select id="o-obra"></select></label>
+          <div class="mesnav"><button type="button" id="o-ant" aria-label="Mês anterior">‹</button><b id="o-mes"></b><button type="button" id="o-prox" aria-label="Próximo mês">›</button></div>
+        </div>
+        <div class="minis" id="o-minis"></div>
+      </section>
+      <div class="grid-ficha">
+        <section class="card">
+          <h2>Calendário de RDOs</h2>
+          <div class="legenda"><span><i style="background:var(--ok)"></i>RDO enviado</span><span><i style="background:var(--falta)"></i>Sem RDO</span><span><i style="background:var(--just)"></i>Sem RDO, ciente</span><span><span class="dot" style="background:var(--chuva)"></span> Chuva</span><span><span class="dot" style="background:var(--alerta)"></span> Ocorrência</span></div>
+          <div class="cal" id="o-cal"></div>
+          <p class="sub" style="margin:0">O número no canto é o efetivo do dia. Clique num dia com RDO para ver o relatório.</p>
+        </section>
+        <section class="card">
+          <h2>Efetivo por dia</h2>
+          <div class="legenda" id="o-leg"></div>
+          <div class="chart" id="o-graf"></div>
+          <h2 style="margin-top:6px">Homem-hora acumulado no mês</h2>
+          <div class="chart" id="o-acum"></div>
+        </section>
+      </div>
+      <section class="card">
+        <div class="topo"><h2>Fotos do mês <span id="o-nfotos"></span></h2><button type="button" class="btn sec" id="o-carregar" hidden>Carregar fotos</button></div>
+        <div class="galeria" id="o-gal"></div>
+        <div class="msg" id="o-msg-gal" role="status"></div>
+      </section>
+    </section>
+
+    <section id="a-ocor" hidden style="display:flex;flex-direction:column;gap:14px">
+      <section class="card">
+        <div class="topo"><h2>Ocorrências registradas nos RDOs</h2><label style="flex-direction:row;align-items:center;gap:6px;font-size:.85rem;white-space:nowrap"><input type="checkbox" id="oc-tratadas"> Mostrar as já tratadas</label></div>
+        <p class="sub">Separadas por assunto pelas palavras do texto. Marque "Tratada" quando resolver; ela sai da lista.</p>
+        <div class="chips" id="oc-chips"></div>
+        <div id="oc-lista" style="display:flex;flex-direction:column;gap:8px"></div>
+      </section>
+      <section class="card">
+        <h2>Ocorrências por obra</h2>
+        <div class="tabela"><table><thead><tr><th>Obra</th><th class="n">Abertas</th><th class="n">Tratadas</th><th>Assuntos mais frequentes</th></tr></thead><tbody id="oc-obras"></tbody></table></div>
+      </section>
+    </section>
+  </div>
+</div>
+</main>
+<div class="modal" id="modal" hidden><div class="box" id="modal-box"></div></div>
+
+<script src="config.js?v=8"></script>
+<script src="indicadores.js?v=1" defer></script>
+</body>
+</html>
