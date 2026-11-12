@@ -67,10 +67,27 @@ const TAGS=[
 ];
 const NOME_TAG=Object.fromEntries(TAGS.map(([k,n])=>[k,n]));NOME_TAG.out="Outros assuntos";
 function tagsDe(t){const s=norm(t).toLowerCase();const r=TAGS.filter(([,,re])=>re.test(s)).map(([k])=>k);return r.length?r:["out"];}
-/* "Tratada": na prévia fica guardado só neste computador */
+/* "Tratada": guardado na central (aba "Ocorrências tratadas" da planilha), vale em qualquer computador */
 const LS="rdo-ocor-tratadas";
-let tratadas=new Set();try{tratadas=new Set(JSON.parse(localStorage.getItem(LS)||"[]"));}catch(e){}
-function salvarTratadas(){try{localStorage.setItem(LS,JSON.stringify([...tratadas]));}catch(e){}}
+let tratadas=new Set();
+async function enviar(corpo){
+  const r=await fetch(CENTRAL.url,{method:"POST",headers:{"Content-Type":"text/plain;charset=utf-8"},body:JSON.stringify({...corpo,senha})});
+  const j=await r.json();if(!j.ok)throw new Error(j.erro||"falha");return j;
+}
+async function marcarTratada(uid,on,btn){
+  const antes=new Set(tratadas);if(on)tratadas.add(uid);else tratadas.delete(uid);
+  if(btn){btn.disabled=true;btn.textContent=on?"Registrando…":"Reabrindo…";}
+  try{const j=await enviar({acao:"tratadaSalvar",adicionar:on?[uid]:[],remover:on?[]:[uid]});tratadas=new Set(j.tratadas||[]);msg("msg-oc","");}
+  catch(e){tratadas=antes;msg("msg-oc","Não consegui registrar na central: "+e.message,true);}
+  render();if(S.aba!=="ocor")renderOcor();
+}
+// marcações feitas na prévia (guardadas só no computador) sobem para a central uma vez
+async function migrarLocais(){
+  let loc=[];try{loc=JSON.parse(localStorage.getItem(LS)||"[]");}catch(e){}
+  const novas=loc.filter(u=>!tratadas.has(u));
+  if(!loc.length)return;
+  try{if(novas.length){const j=await enviar({acao:"tratadaSalvar",adicionar:novas,remover:[]});tratadas=new Set(j.tratadas||[]);}localStorage.removeItem(LS);render();}catch(e){}
+}
 
 /* ---------- central ---------- */
 async function chamar(params){
@@ -82,8 +99,10 @@ async function chamar(params){
 async function carregar(){
   const [j,o]=await Promise.all([chamar({acao:"listar"}),chamar({acao:"obrasTodas"}).catch(()=>({obras:[]}))]);
   todos=(j.rdos||[]).map(r=>({...r,data:dataStr(r.data),total:num(r.total)})).filter(r=>r.data);
-  ciente=new Set(j.ciente||[]);cadObras=o.obras||[];
+  ciente=new Set(j.ciente||[]);cadObras=o.obras||[];tratadas=new Set(j.tratadas||[]);
   montarCanon(todos);montarFiltros();render();
+  $("atualizado").textContent="Atualizado às "+new Date().toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"})+" · "+todos.length+" RDOs na central";
+  if(Array.isArray(j.tratadas))migrarLocais();
 }
 async function entrar(s){
   senha=s;msg("msg-login","Entrando…");
@@ -97,7 +116,7 @@ async function entrar(s){
   }
 }
 $("v-login").addEventListener("submit",e=>{e.preventDefault();const s=$("senha").value;if(!s)return msg("msg-login","Digite a senha.",true);entrar(s);});
-$("b-sair").onclick=()=>{senha="";todos=[];try{sessionStorage.removeItem("sup-senha");}catch(e){}$("v-painel").hidden=true;$("v-login").hidden=false;$("senha").value="";};
+$("b-sair").onclick=()=>{location.href="supervisor.html";senha="";todos=[];try{sessionStorage.removeItem("sup-senha");}catch(e){}$("v-painel").hidden=true;$("v-login").hidden=false;$("senha").value="";};
 $("b-atualizar").onclick=async()=>{const b=$("b-atualizar");b.disabled=true;b.textContent="Atualizando…";
   try{await carregar();b.textContent="✓ Atualizado";msg("msg-atu","");}catch(e){b.textContent="Atualizar";msg("msg-atu","Não consegui atualizar: "+e.message,true);}
   finally{b.disabled=false;setTimeout(()=>b.textContent="Atualizar",2000);}};
@@ -339,8 +358,8 @@ function renderOcor(){
     :`<p class="vazio-msg">${L.length?"Nenhuma ocorrência aberta neste filtro.":"Nenhuma ocorrência registrada no período."}</p>`;
   const porUid=Object.fromEntries(L.map(x=>[x.r.uid,x.r]));
   $("oc-lista").querySelectorAll("[data-ver]").forEach(b=>b.onclick=()=>abrirRdo(porUid[b.dataset.ver]));
-  $("oc-lista").querySelectorAll("[data-tratar]").forEach(b=>b.onclick=()=>{tratadas.add(b.dataset.tratar);salvarTratadas();render();renderOcor();});
-  $("oc-lista").querySelectorAll("[data-reabrir]").forEach(b=>b.onclick=()=>{tratadas.delete(b.dataset.reabrir);salvarTratadas();render();renderOcor();});
+  $("oc-lista").querySelectorAll("[data-tratar]").forEach(b=>b.onclick=()=>marcarTratada(b.dataset.tratar,true,b));
+  $("oc-lista").querySelectorAll("[data-reabrir]").forEach(b=>b.onclick=()=>marcarTratada(b.dataset.reabrir,false,b));
   // por obra
   const g={};L.forEach(x=>{const k=obraChave(x.r),o=g[k]=g[k]||{ab:0,tr:0,t:{}};x.ok?o.tr++:o.ab++;x.tags.forEach(t=>o.t[t]=(o.t[t]||0)+1);});
   const ls=Object.entries(g).sort((a,b)=>b[1].ab-a[1].ab||b[1].tr-a[1].tr);
