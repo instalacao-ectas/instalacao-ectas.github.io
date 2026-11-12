@@ -318,7 +318,7 @@ function doGet(e) {
     const dados = n < 2 ? [] : sh.getRange(2, 1, n - 1, COLUNAS.length).getValues().map(v => {
       const o = {}; COLUNAS.forEach((c, i) => o[c] = v[i] instanceof Date ? v[i].toISOString() : v[i]); return o;
     });
-    return json_({ ok: true, rdos: dados, planilha: planilha_().getUrl(), senhaInfo: est, ciente: lerCiente_() });
+    return json_({ ok: true, rdos: dados, planilha: planilha_().getUrl(), senhaInfo: est, ciente: lerCiente_(), tratadas: lerTratadas_() });
   }
   if (p.acao === "obrasTodas") return json_({ ok: true, obras: listarObras_(), usuarios: listarUsu_() });
   if (p.acao === "config") { try { garantirGatilhoBackup_(); } catch (e) { } return json_({ ok: true, config: config_() }); }
@@ -657,6 +657,7 @@ function acaoSupervisor_(b) {
   try {
     if (b.acao !== "senhaTrocar" && estadoSenha_().vencida) return { ok: false, erro: "senha vencida" };
     if (b.acao === "cienteSalvar") return salvarCiente_(b.adicionar, b.remover);
+    if (b.acao === "tratadaSalvar") return salvarTratadas_(b.adicionar, b.remover);
     if (b.acao === "obraSalvar") return salvarObra_(b.obra || {});
     if (b.acao === "obraExcluir") return excluirObras_(b.ids || b.id);
     if (b.acao === "rdoExcluir") return excluirRdos_(b.uids || b.uid);
@@ -755,6 +756,46 @@ function configurar() {
   Logger.log("Cota de e-mails restante hoje: " + MailApp.getRemainingDailyQuota());
   Logger.log("Gatilhos: " + ScriptApp.getProjectTriggers().length);
   Logger.log("Planilha: " + planilha_().getUrl());
+}
+
+/* ---------- ocorrências dos RDOs que o supervisor marcou como tratadas (aba Indicadores) ---------- */
+const ABA_TRATADAS = "Ocorrências tratadas";
+function abaTratadas_() {
+  const ss = planilha_();
+  let sh = ss.getSheetByName(ABA_TRATADAS);
+  if (!sh) {
+    sh = ss.insertSheet(ABA_TRATADAS);
+    sh.getRange(1, 1, 1, 2).setValues([["Código interno do RDO", "Marcada como tratada em"]]).setFontWeight("bold");
+    sh.setFrozenRows(1);
+    sh.getRange(1, 1, sh.getMaxRows(), 2).setNumberFormat("@");
+  }
+  return sh;
+}
+function lerTratadas_() {
+  try {
+    const sh = abaTratadas_(), n = sh.getLastRow();
+    if (n < 2) return [];
+    return sh.getRange(2, 1, n - 1, 1).getValues().map(v => String(v[0])).filter(Boolean);
+  } catch (e) { return []; }
+}
+// adicionar / remover: listas de códigos internos (uid) de RDO
+function salvarTratadas_(adicionar, remover) {
+  const ok = k => typeof k === "string" && /^[^\s|]{1,80}$/.test(k);
+  const add = (Array.isArray(adicionar) ? adicionar : []).filter(ok).slice(0, 500);
+  const rem = new Set((Array.isArray(remover) ? remover : []).filter(ok));
+  const sh = abaTratadas_(), n = sh.getLastRow();
+  const atuais = n < 2 ? [] : sh.getRange(2, 1, n - 1, 2).getValues().map(v => [String(v[0]), String(v[1] || "")]).filter(v => v[0]);
+  const manter = atuais.filter(v => !rem.has(v[0]));
+  const ja = new Set(manter.map(v => v[0]));
+  const quando = new Date().toISOString();
+  add.forEach(k => { if (!ja.has(k)) { ja.add(k); manter.push([k, quando]); } });
+  if (n >= 2) sh.getRange(2, 1, n - 1, 2).clearContent();
+  if (manter.length) {
+    const falta = manter.length + 1 - sh.getMaxRows();
+    if (falta > 0) sh.insertRowsAfter(sh.getMaxRows(), falta);
+    sh.getRange(2, 1, manter.length, 2).setNumberFormat("@").setValues(manter);
+  }
+  return { ok: true, tratadas: manter.map(v => v[0]) };
 }
 
 /* ---------- avisos de "dias sem RDO" que o supervisor marcou como ciente ---------- */
