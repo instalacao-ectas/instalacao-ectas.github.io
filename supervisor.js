@@ -9,6 +9,8 @@ let senha="",todos=[],planilha="";
 function esc(s){const d=document.createElement("div");d.textContent=s==null?"":String(s);return d.innerHTML;}
 const num=v=>parseInt(v,10)||0;
 const dataStr=v=>{if(!v)return"";const s=String(v);return /^\d{4}-\d{2}-\d{2}/.test(s)?s.slice(0,10):"";};
+// horário que a planilha guardou como data (1899-12-30T…) volta para HH:MM no fuso de Brasília
+function hora(v){const t=String(v??"").trim();if(!/^\d{4}-\d{2}-\d{2}T/.test(t))return t;const d=new Date(t);return isNaN(d)?t:d.toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit",timeZone:"America/Sao_Paulo"});}
 function fmt(s){if(!s)return"-";const[y,m,d]=s.split("-");return `${d}/${m}/${y}`;}
 function dia(s){const[y,m,d]=s.split("-");return new Date(+y,+m-1,+d);}
 function iso(d){const z=new Date(d);z.setMinutes(z.getMinutes()-z.getTimezoneOffset());return z.toISOString().slice(0,10);}
@@ -529,7 +531,7 @@ function abrir(r){
     <div class="msg" id="m-msg-ex" role="status"></div>
     <div class="det">
       ${campo("ID",r.idobra)}${campo("Obra",r.obra)}${campo("Local",r.local)}${campo("Data",fmt(r.data))}
-      ${campo("Responsável",r.resp)}${campo("Expediente",(r.hini||"?")+" às "+(r.hfim||"?"))}
+      ${campo("Responsável",r.resp)}${campo("Expediente",(hora(r.hini)||"?")+" às "+(hora(r.hfim)||"?"))}
       ${campo("Tempo manhã",semIcone(r.clima_manha))}${campo("Tempo tarde",semIcone(r.clima_tarde))}
       ${campo("Efetivo",r.total+" pessoas ("+FUNCOES.map(([k,n])=>n+" "+num(r[k])).join(", ")+")")}
     </div>
@@ -573,7 +575,7 @@ $("b-excel").onclick=async()=>{
   if(!L.length){msg("msg","Nenhum RDO para exportar.",true);return;}
   try{
     await carregarXlsx();
-    const rows=L.map(r=>({"Data":fmt(r.data),"ID":(canon[obraChave(r)]||r).idobra,"Obra":(canon[obraChave(r)]||r).obra,"Local":(canon[obraChave(r)]||r).local,"Obra como digitada":[r.obra,r.local].filter(Boolean).join(" / "),"Nº RDO":num(r.rdo)||r.rdo,"Responsável":r.resp,"Início":r.hini,"Fim":r.hfim,
+    const rows=L.map(r=>({"Data":fmt(r.data),"ID":(canon[obraChave(r)]||r).idobra,"Obra":(canon[obraChave(r)]||r).obra,"Local":(canon[obraChave(r)]||r).local,"Obra como digitada":[r.obra,r.local].filter(Boolean).join(" / "),"Nº RDO":num(r.rdo)||r.rdo,"Responsável":r.resp,"Início":hora(r.hini),"Fim":hora(r.hfim),
       "Tempo manhã":semIcone(r.clima_manha),"Tempo tarde":semIcone(r.clima_tarde),"Líder":num(r.lider),"Montador":num(r.montador),"Auxiliar":num(r.auxiliar),"Outros":num(r.outros),"Total efetivo":r.total,
       "Atividades executadas":r.ativ,"Equipamentos":r.equip,"Materiais recebidos":r.mat,"Ocorrências":r.ocor,"Observações":r.obs,"Nº de fotos":num(r.n_fotos),"PDF na central":r.pdf?"Sim":"Não","Pasta da obra":r.pasta_fotos}));
     const ws=XLSX.utils.json_to_sheet(rows);
