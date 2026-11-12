@@ -1,6 +1,6 @@
 // Guarda o app no celular para abrir sem internet (a agenda em si fica salva pelo app)
-const CACHE="agenda-v2";
-const ARQUIVOS=["./","index.html","style.css?v=2","comum.js?v=2","app.js?v=2","config.js?v=2","../config.js?v=3","supervisor.html","supervisor.js?v=2","icon-192.png","icon-512.png","manifest.webmanifest","../logo.png"];
+const CACHE="agenda-v3";
+const ARQUIVOS=["./","index.html","style.css?v=2","comum.js?v=2","app.js?v=2","config.js?v=3","../config.js?v=3","supervisor.html","supervisor.js?v=2","icon-192.png","icon-512.png","manifest.webmanifest","../logo.png"];
 self.addEventListener("install",e=>{e.waitUntil(caches.open(CACHE).then(c=>c.addAll(ARQUIVOS)).then(()=>self.skipWaiting()));});
 self.addEventListener("activate",e=>{e.waitUntil(caches.keys().then(ks=>Promise.all(ks.filter(k=>k.startsWith("agenda-")&&k!==CACHE).map(k=>caches.delete(k)))).then(()=>self.clients.claim()));});
 self.addEventListener("fetch",e=>{
