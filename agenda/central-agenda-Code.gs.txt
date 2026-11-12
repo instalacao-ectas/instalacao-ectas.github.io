@@ -24,6 +24,7 @@ const DIAS_FUTURO_CAMPO = 120;    // e 4 meses para frente
 const DIARIO_URL = "https://script.google.com/macros/s/AKfycbwm4iDoUQ32nVi2vRhRKCr01LoFGXAkA2zWl3lEWunhhHS2h4_0e3EOEtIzmHSL-LPKrg/exec";
 const DIARIO_CHAVE = "ectas-rdo-campo-2026";
 const REVALIDAR_MIN = 15;
+const CARGA_URL = "https://raw.githubusercontent.com/instalacao-ectas/instalacao-ectas.github.io/main/agenda/carga-agenda.json";
 
 const TIPOS = ["Obra", "Assistência técnica", "Manutenção", "Base ECTAS", "Treinamento", "Reunião", "Exame",
   "Folga", "Férias", "Feriado", "Licença", "Atestado", "Falta", "A definir"];
@@ -295,9 +296,12 @@ function garantirGatilhoBackup_() {
 /* ---------- instalação ---------- */
 function configurar() {
   Object.keys(T).forEach(aba_);
-  if (typeof CARGA_AGENDA === "undefined") { Logger.log("Arquivo Carga.gs não encontrado: as abas foram criadas vazias."); }
-  else {
-    const C = CARGA_AGENDA;
+  let C = (typeof CARGA_AGENDA !== "undefined") ? CARGA_AGENDA : null;
+  if (!C) {   // sem o arquivo Carga.gs: busca a carga publicada no site
+    try { C = JSON.parse(UrlFetchApp.fetch(CARGA_URL, { muteHttpExceptions: true }).getContentText()); }
+    catch (e) { Logger.log("Não consegui baixar a carga inicial: as abas foram criadas vazias."); }
+  }
+  if (C) {
     if (!ler_("func").length) reescrever_("func", C.funcionarios.map(f => ({ nome: f[0], funcao: f[1], ativo: f[2] ? "Sim" : "Não", login: f[3] || "" })));
     if (!ler_("obras").length) reescrever_("obras", C.obras.map(o => ({ id: o[0], nome: o[1], cidade: o[2] })));
     if (!ler_("veic").length) reescrever_("veic", C.veiculos.map(v => ({ nome: v })));
