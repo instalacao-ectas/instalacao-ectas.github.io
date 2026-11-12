@@ -141,7 +141,7 @@ function formLanc(it,pre){
     h("label",{class:"field"},"Tipo",tipo),h("div",{class:"field"},h("span",{class:"label",text:"Status"}),st),
     ...blocoObra,dl,h("label",{class:"field full"},"Veículo",veic),dlv,h("label",{class:"field full"},"Observação",obs),alerta);
   mostrarObra();
-  const escolhidos=()=>ed?[$("l-func").value]:[...corpo.querySelectorAll("#l-funcs input:checked")].map(i=>i.value);
+  const escolhidos=()=>ed?[corpo.querySelector("#l-func").value]:[...corpo.querySelectorAll("#l-funcs input:checked")].map(i=>i.value);
   function checar(){
     const a=ini.value,b=fim.value,ms=[];
     if(a&&b&&b<a)ms.push("O término é antes do início.");

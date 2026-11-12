@@ -1,7 +1,7 @@
 # Agenda Técnica ECTAS: instalação da central
 
 - App do técnico: **https://instalacao-ectas.github.io/agenda/**
-- Painel do supervisor: **https://instalacao-ectas.github.io/agenda/supervisor.html**
+- Painel do supervisor: **https://instalacao-ectas.github.io/agenda/supervisor.html**, ou a aba **📅 Agenda Técnica** do Painel do Supervisor do Diário (https://instalacao-ectas.github.io/agenda.html)
 
 Mesmo modelo do Diário de Obra e do Controle de Ferramentas: os dados ficam numa planilha do Google e a central é um Google Apps Script.
 O acesso é único com o Diário de Obra: técnicos usam o mesmo usuário e senha, e o painel usa a mesma senha do Painel do Diário.
