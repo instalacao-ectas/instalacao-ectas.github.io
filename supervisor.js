@@ -149,7 +149,7 @@ async function carregar(){
 let cadObras=[],editandoId=null,usuarios=[];
 const nomeUsu=l=>(usuarios.find(u=>u.login===l)||{}).nome||l;
 async function carregarObras(){
-  try{const j=await chamar({acao:"obrasTodas"});cadObras=j.obras||[];usuarios=j.usuarios||[];renderObras2();renderUsu();}
+  try{const j=await chamar({acao:"obrasTodas"});cadObras=j.obras||[];usuarios=j.usuarios||[];renderObras2();renderUsu();renderFaltas(filtrados());}
   catch(e){msg("msg-obras","Não consegui carregar as obras: "+e.message,true);}
 }
 function renderObras2(){
@@ -397,6 +397,7 @@ function renderFaltas(L){
   // considera também obras com RDO antes do período, para não esquecer obra parada
   const linhas=[],vistos=[];
   Object.entries(porObra).forEach(([o,datas])=>{
+    if(!obraGeraAviso(o))return;   // obra inativa ou excluída do cadastro não gera aviso
     const ini=[...datas].sort()[0];
     const comeco=de&&de>ini?de:ini;
     const faltam=[],jaVistos=[];
@@ -420,6 +421,12 @@ function renderFaltas(L){
   $("faltas").querySelectorAll("[data-ciente]").forEach(b=>b.onclick=()=>marcarCiente(b,b.dataset.ciente,b.dataset.dias.split(","),true));
   $("faltas").querySelectorAll("[data-desfazer]").forEach(b=>b.onclick=()=>marcarCiente(b,b.dataset.desfazer,b.dataset.dias.split(","),false));
   const bv=$("b-ver-ciente");if(bv)bv.onclick=()=>{verCiente=!verCiente;renderFaltas(filtrados());};
+}
+// só obras ativas no cadastro geram aviso; enquanto o cadastro não carregou, mostra todas
+function obraGeraAviso(chave){
+  if(!cadObras.length||!chave.startsWith("ID:"))return true;
+  const o=cadObras.find(x=>norm(x.id)===chave.slice(3));
+  return !!o&&o.ativa;
 }
 async function marcarCiente(btn,obra,dias,marcar){
   const chaves=dias.filter(Boolean).map(d=>obra+"|"+d);
