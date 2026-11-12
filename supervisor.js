@@ -134,6 +134,7 @@ let ultimaCarga=0;
 async function carregar(){
   const j=await chamar({acao:"listar"});
   todos=(j.rdos||[]).map(r=>({...r,data:dataStr(r.data),total:num(r.total)})).filter(r=>r.data);
+  ciente=new Set(j.ciente||[]);
   montarCanon(todos);
   mostrarSenhaInfo(j.senhaInfo);
   planilha=j.planilha||"";
@@ -386,25 +387,47 @@ function render(){
   renderFaltas(L);renderGrafico(L);renderObras(L);renderLista(L);
 }
 
+// dias sem RDO que o supervisor já marcou como ciente (guardado na central, vale em qualquer computador)
+let ciente=new Set(),verCiente=false;
 function renderFaltas(L){
   const ontem=(()=>{const d=new Date();d.setDate(d.getDate()-1);return iso(d);})();
   const de=$("f-de").value,ate=[$("f-ate").value||ontem,ontem].sort()[0];
   const porObra={};
   L.forEach(r=>{const k=obraChave(r);(porObra[k]=porObra[k]||new Set()).add(r.data);});
   // considera também obras com RDO antes do período, para não esquecer obra parada
-  const linhas=[];
+  const linhas=[],vistos=[];
   Object.entries(porObra).forEach(([o,datas])=>{
     const ini=[...datas].sort()[0];
     const comeco=de&&de>ini?de:ini;
-    const faltam=[];
+    const faltam=[],jaVistos=[];
     for(let d=dia(comeco);iso(d)<=ate;d.setDate(d.getDate()+1)){
       if(d.getDay()===0)continue;
-      const s=iso(d);if(!datas.has(s))faltam.push(s);
+      const s=iso(d);if(datas.has(s))continue;
+      (ciente.has(o+"|"+s)?jaVistos:faltam).push(s);
     }
-    if(faltam.length)linhas.push(`<div><b>${esc(obraNome(canon[o]||{}))}</b> <span class="status">${faltam.length} dia${faltam.length>1?"s":""}:</span> ${faltam.slice(-12).map(s=>`<span class="d">${fmt(s).slice(0,5)}</span>`).join(" ")}${faltam.length>12?" <span class='status'>…</span>":""}</div>`);
+    const nome=esc(obraNome(canon[o]||{}));
+    if(faltam.length)linhas.push(`<div><b>${nome}</b> <span class="status">${faltam.length} dia${faltam.length>1?"s":""}:</span> ${faltam.slice(-12).map(s=>`<span class="d">${fmt(s).slice(0,5)}</span>`).join(" ")}${faltam.length>12?" <span class='status'>…</span>":""} <button type="button" class="btn-ciente" data-ciente="${esc(o)}" data-dias="${faltam.join(",")}">✓ Estou ciente</button></div>`);
+    if(jaVistos.length)vistos.push(`<div class="visto"><b>${nome}</b> <span class="status">${jaVistos.length} dia${jaVistos.length>1?"s":""} marcado${jaVistos.length>1?"s":""} como ciente:</span> ${jaVistos.slice(-12).map(s=>`<span class="d">${fmt(s).slice(0,5)}</span>`).join(" ")} <button type="button" class="linkbtn" data-desfazer="${esc(o)}" data-dias="${jaVistos.join(",")}">Desfazer</button></div>`);
   });
-  $("c-faltas").hidden=!linhas.length;
-  $("faltas").innerHTML=linhas.join("");
+  const nVistos=vistos.length;
+  $("c-faltas").hidden=!linhas.length&&!nVistos;
+  $("c-faltas").classList.toggle("alerta",!!linhas.length);
+  // sem aviso pendente: o cartão amarelo sai e fica só um link discreto para rever ou desfazer
+  $("c-faltas").classList.toggle("so-vistos",!linhas.length);
+  $("c-faltas").querySelector("h2").hidden=!linhas.length;
+  $("faltas").innerHTML=(linhas.length?linhas.join(""):"")+
+    (nVistos?`<div class="vistos-rodape"><button type="button" class="linkbtn" id="b-ver-ciente">${verCiente?"Esconder":"Ver"} os dias sem RDO já marcados como ciente (${nVistos} obra${nVistos>1?"s":""})</button></div>${verCiente?vistos.join(""):""}`:"");
+  $("faltas").querySelectorAll("[data-ciente]").forEach(b=>b.onclick=()=>marcarCiente(b,b.dataset.ciente,b.dataset.dias.split(","),true));
+  $("faltas").querySelectorAll("[data-desfazer]").forEach(b=>b.onclick=()=>marcarCiente(b,b.dataset.desfazer,b.dataset.dias.split(","),false));
+  const bv=$("b-ver-ciente");if(bv)bv.onclick=()=>{verCiente=!verCiente;renderFaltas(filtrados());};
+}
+async function marcarCiente(btn,obra,dias,marcar){
+  const chaves=dias.filter(Boolean).map(d=>obra+"|"+d);
+  btn.disabled=true;btn.textContent=marcar?"Registrando…":"Desfazendo…";
+  try{
+    const j=await enviar({acao:"cienteSalvar",adicionar:marcar?chaves:[],remover:marcar?[]:chaves});
+    ciente=new Set(j.ciente||[]);renderFaltas(filtrados());const m=$("msg-faltas");if(m)m.textContent="";
+  }catch(e){btn.disabled=false;btn.textContent=marcar?"✓ Estou ciente":"Desfazer";const m=$("msg-faltas");if(m){m.textContent="Não consegui registrar na central: "+e.message;m.className="msg err";}}
 }
 
 function renderGrafico(L){

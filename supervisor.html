@@ -32,6 +32,13 @@ main .wrap.wide{padding-block:16px 48px}
 .falta{display:flex;flex-direction:column;gap:6px;font-size:.88rem}
 .falta div{display:flex;gap:8px;flex-wrap:wrap;align-items:baseline}
 .falta .d{font-variant-numeric:tabular-nums;font-size:.8rem;background:var(--surface);border:1px solid var(--line);border-radius:999px;padding:1px 8px}
+.btn-ciente{margin-left:auto;font:inherit;font-size:.82rem;font-weight:700;border:1px solid var(--warn);background:var(--surface);color:var(--warn);border-radius:999px;padding:5px 12px;cursor:pointer}
+.btn-ciente:hover{background:var(--warn);color:#FFFFFF}
+.btn-ciente:disabled{opacity:.6;cursor:progress}
+.falta .visto{opacity:.75}
+.vistos-rodape{border-top:1px dashed var(--line);padding-top:6px;margin-top:2px}
+#c-faltas.so-vistos{background:transparent;border:0;box-shadow:none;padding:0 4px}
+#c-faltas.so-vistos .vistos-rodape{border:0;padding:0;margin:0}
 .legenda{display:flex;gap:14px;flex-wrap:wrap;font-size:.8rem;color:var(--muted)}
 .legenda i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:5px;vertical-align:-1px}
 .chart{position:relative;overflow-x:auto}
@@ -130,6 +137,7 @@ tbody tr:hover{background:var(--chip)}
     <section class="card alerta" id="c-faltas" hidden>
       <h2>Dias sem RDO (segunda a sábado, até ontem)</h2>
       <div class="falta" id="faltas"></div>
+      <div class="msg" id="msg-faltas" role="status"></div>
     </section>
 
     <section class="card">
@@ -243,6 +251,6 @@ tbody tr:hover{background:var(--chip)}
 <div class="modal" id="modal" hidden><div class="box" id="modal-box"></div></div>
 
 <script src="config.js?v=10"></script>
-<script src="supervisor.js?v=27"></script>
+<script src="supervisor.js?v=28"></script>
 </body>
 </html>

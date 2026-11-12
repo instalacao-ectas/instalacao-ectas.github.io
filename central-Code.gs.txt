@@ -318,7 +318,7 @@ function doGet(e) {
     const dados = n < 2 ? [] : sh.getRange(2, 1, n - 1, COLUNAS.length).getValues().map(v => {
       const o = {}; COLUNAS.forEach((c, i) => o[c] = v[i] instanceof Date ? v[i].toISOString() : v[i]); return o;
     });
-    return json_({ ok: true, rdos: dados, planilha: planilha_().getUrl(), senhaInfo: est });
+    return json_({ ok: true, rdos: dados, planilha: planilha_().getUrl(), senhaInfo: est, ciente: lerCiente_() });
   }
   if (p.acao === "obrasTodas") return json_({ ok: true, obras: listarObras_(), usuarios: listarUsu_() });
   if (p.acao === "config") { try { garantirGatilhoBackup_(); } catch (e) { } return json_({ ok: true, config: config_() }); }
@@ -656,6 +656,7 @@ function acaoSupervisor_(b) {
   lock.waitLock(20000);
   try {
     if (b.acao !== "senhaTrocar" && estadoSenha_().vencida) return { ok: false, erro: "senha vencida" };
+    if (b.acao === "cienteSalvar") return salvarCiente_(b.adicionar, b.remover);
     if (b.acao === "obraSalvar") return salvarObra_(b.obra || {});
     if (b.acao === "obraExcluir") return excluirObras_(b.ids || b.id);
     if (b.acao === "rdoExcluir") return excluirRdos_(b.uids || b.uid);
@@ -750,4 +751,49 @@ function configurar() {
   Logger.log("Cota de e-mails restante hoje: " + MailApp.getRemainingDailyQuota());
   Logger.log("Gatilhos: " + ScriptApp.getProjectTriggers().length);
   Logger.log("Planilha: " + planilha_().getUrl());
+}
+
+/* ---------- avisos de "dias sem RDO" que o supervisor marcou como ciente ---------- */
+const ABA_CIENTE = "Avisos vistos";
+function abaCiente_() {
+  const ss = planilha_();
+  let sh = ss.getSheetByName(ABA_CIENTE);
+  if (!sh) {
+    sh = ss.insertSheet(ABA_CIENTE);
+    sh.getRange(1, 1, 1, 3).setValues([["Obra (chave do painel)", "Dia sem RDO", "Marcado como ciente em"]]).setFontWeight("bold");
+    sh.setFrozenRows(1);
+    sh.getRange(1, 1, sh.getMaxRows(), 3).setNumberFormat("@");
+  }
+  return sh;
+}
+function lerCiente_() {
+  try {
+    const sh = abaCiente_(), n = sh.getLastRow();
+    if (n < 2) return [];
+    return sh.getRange(2, 1, n - 1, 2).getValues().map(v => String(v[0]) + "|" + (v[1] instanceof Date ? Utilities.formatDate(v[1], "America/Sao_Paulo", "yyyy-MM-dd") : String(v[1])));
+  } catch (e) { return []; }
+}
+// adicionar / remover: listas de "chave|aaaa-mm-dd"
+function salvarCiente_(adicionar, remover) {
+  const ok = k => typeof k === "string" && /^[^|]{1,200}\|\d{4}-\d{2}-\d{2}$/.test(k);
+  const add = (Array.isArray(adicionar) ? adicionar : []).filter(ok).slice(0, 500);
+  const rem = new Set((Array.isArray(remover) ? remover : []).filter(ok));
+  const sh = abaCiente_(), atuais = lerCiente_();
+  const manter = atuais.filter(k => !rem.has(k));
+  const ja = new Set(manter);
+  const quando = new Date().toISOString();
+  const linhas = manter.map(k => { const i = k.lastIndexOf("|"); return [k.slice(0, i), k.slice(i + 1), ""]; });
+  if (rem.size) {   // reescreve a aba quando há remoção
+    const datas = sh.getLastRow() >= 2 ? sh.getRange(2, 3, sh.getLastRow() - 1, 1).getValues().map(v => v[0]) : [];
+    linhas.forEach((l, i) => l[2] = datas[atuais.indexOf(manter[i])] || "");
+    if (sh.getLastRow() >= 2) sh.getRange(2, 1, sh.getLastRow() - 1, 3).clearContent();
+    if (linhas.length) sh.getRange(2, 1, linhas.length, 3).setNumberFormat("@").setValues(linhas);
+  }
+  const novas = add.filter(k => !ja.has(k)).map(k => { ja.add(k); const i = k.lastIndexOf("|"); return [k.slice(0, i), k.slice(i + 1), quando]; });
+  if (novas.length) {
+    const ini = sh.getLastRow() + 1, falta = ini + novas.length - 1 - sh.getMaxRows();
+    if (falta > 0) sh.insertRowsAfter(sh.getMaxRows(), falta);
+    sh.getRange(ini, 1, novas.length, 3).setNumberFormat("@").setValues(novas);
+  }
+  return { ok: true, ciente: lerCiente_() };
 }
