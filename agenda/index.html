@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Agenda Técnica ECTAS</title>
+<meta name="theme-color" content="#002B49">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Agenda">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800&display=swap">
+<link rel="stylesheet" href="style.css?v=1">
+<style>.troca-app{background:#002B49;border-top:1px solid rgba(255,255,255,.12)}.troca-app .troca-wrap{display:flex;gap:6px;padding-block:8px}.troca-app a{flex:1;text-align:center;padding:9px 8px;border-radius:999px;color:#FFFFFF;background:rgba(255,255,255,.10);font:700 13.5px "Montserrat",Arial,sans-serif;text-decoration:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:300px}.troca-app a[aria-current="page"]{background:#66D3CD;color:#002B49}.troca-app a:focus-visible{outline:3px solid #66D3CD;outline-offset:2px}</style>
+</head>
+<body>
+<header class="band">
+  <div class="wrap wide">
+    <div class="logo"><img src="../logo.png" alt="ECTAS Saneamento"></div>
+    <div class="apptitle"><h1>Agenda Técnica</h1><p id="sub">Acesso do técnico</p></div>
+    <button type="button" class="btn-top" id="b-atualizar" hidden>Atualizar</button>
+    <button type="button" class="btn-top" id="b-sair" hidden>Sair</button>
+  </div>
+  <div class="stripe"></div>
+</header>
+<nav class="troca-app" aria-label="Escolher aplicativo"><div class="wrap wide troca-wrap"><a href="../">Diário de Obra</a><a href="../ferramentas/">Controle de Ferramentas</a><a href="./" aria-current="page">Agenda Técnica</a></div></nav>
+
+<div class="wrap" id="instalar" hidden>
+  <div class="instalar-card">
+    <img src="icon-192.png" alt="">
+    <div class="t"><b>Instale a Agenda Técnica no celular</b><span id="instalar-como">Fica com ícone na tela inicial e mostra a última agenda mesmo sem internet.</span></div>
+    <button type="button" class="btn primary small" id="b-instalar">Instalar</button>
+    <button type="button" class="linkbtn" id="b-instalar-nao">Agora não</button>
+  </div>
+</div>
+
+<div class="wrap" id="v-entrar" hidden>
+  <form class="login" id="f-entrar" autocomplete="on">
+    <h2>Entrar</h2>
+    <p class="mini" style="margin:0">Use o mesmo usuário e senha do Diário de Obra.</p>
+    <label>Usuário<input id="l-usuario" autocomplete="username" autocapitalize="none" spellcheck="false"></label>
+    <label>Senha<input id="l-senha" type="password" autocomplete="current-password"></label>
+    <button type="submit" class="btn primary big" id="b-entrar">Entrar</button>
+    <div class="msg" id="l-msg" role="status"></div>
+    <p class="mini" style="margin:0">Esqueceu a senha? Peça ao supervisor para cadastrar uma nova no Painel do Diário de Obra.</p>
+  </form>
+</div>
+
+<nav class="tabs" id="nav" hidden><div class="wrap wide" role="tablist">
+  <button role="tab" data-tab="minha" aria-selected="true">Minha agenda</button>
+  <button role="tab" data-tab="agenda" aria-selected="false">Agenda da equipe</button>
+  <button role="tab" data-tab="hoje" aria-selected="false">Onde está a equipe</button>
+</div></nav>
+
+<main class="wrap wide" id="main" hidden></main>
+<div id="modalroot"></div>
+<div id="toast" class="toast" hidden></div>
+<footer class="rod wrap"><span id="versao"></span> · <button type="button" class="linkbtn" id="b-instalar-rodape" hidden>Instalar o aplicativo no celular</button></footer>
+
+<script src="../config.js?v=3"></script>
+<script src="config.js?v=1"></script>
+<script src="comum.js?v=1"></script>
+<script src="app.js?v=1" defer></script>
+</body>
+</html>

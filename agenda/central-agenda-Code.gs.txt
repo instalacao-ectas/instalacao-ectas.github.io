@@ -1,0 +1,315 @@
+/**
+ * Agenda Técnica ECTAS - Base central
+ * Guarda a programação da equipe externa (onde cada técnico está alocado),
+ * os cadastros (funcionários, obras, veículos), as obras em espera e as manutenções
+ * numa planilha própria do Google. O app do técnico só lê; o Painel do Supervisor lê e altera.
+ *
+ * Mesmo modelo do Diário de Obra ECTAS e do Controle de Ferramentas:
+ * técnicos entram com o mesmo usuário e senha do Diário, e o painel usa a mesma senha do Painel do Diário.
+ * Instalação: cole este código num projeto novo do Apps Script, crie um segundo arquivo "Carga.gs"
+ * com o conteúdo de carga-agenda.gs.txt, rode "configurar" uma vez e implante como App da Web
+ * (executar como: eu; quem pode acessar: qualquer pessoa).
+ */
+
+const CHAVE_CAMPO = "ectas-agenda-campo-2026";
+const DIAS_SESSAO = 30;           // sessão do técnico no celular
+const NOME_PLANILHA = "Agenda Técnica ECTAS - Base";
+const PASTA_BACKUP = "Agenda Técnica ECTAS - Backups";
+const BACKUPS_MANTER = 12;
+const TZ = "America/Sao_Paulo";
+const DIAS_PASSADO_CAMPO = 21;    // o app do técnico recebe 3 semanas para trás
+const DIAS_FUTURO_CAMPO = 120;    // e 4 meses para frente
+
+/* Acesso único com o Diário de Obra: quem valida usuário e senha é a central do Diário. */
+const DIARIO_URL = "https://script.google.com/macros/s/AKfycbwm4iDoUQ32nVi2vRhRKCr01LoFGXAkA2zWl3lEWunhhHS2h4_0e3EOEtIzmHSL-LPKrg/exec";
+const DIARIO_CHAVE = "ectas-rdo-campo-2026";
+const REVALIDAR_MIN = 15;
+
+const TIPOS = ["Obra", "Assistência técnica", "Manutenção", "Base ECTAS", "Treinamento", "Reunião", "Exame",
+  "Folga", "Férias", "Feriado", "Licença", "Atestado", "Falta", "A definir"];
+
+/* ---------- abas da planilha ---------- */
+const T = {
+  lanc: { aba: "Lançamentos", cols: ["id", "funcionario", "inicio", "fim", "tipo", "obra_id", "obra", "cidade", "status", "veiculo", "obs", "seq", "alterado_em"],
+    tit: ["Código interno", "Funcionário", "Início (aaaa-mm-dd)", "Término (aaaa-mm-dd)", "Tipo", "ID da obra", "Obra / local", "Cidade/UF",
+      "Status (Planejado ou Confirmado)", "Veículo", "Observação", "Ordem (vale o maior no mesmo dia)", "Alterado em"] },
+  func: { aba: "Funcionários", cols: ["nome", "funcao", "ativo", "login"],
+    tit: ["Nome", "Função", "Ativo na agenda (Sim/Não)", "Usuário do Diário de Obra"] },
+  obras: { aba: "Obras", cols: ["id", "nome", "cidade"], tit: ["ID", "Obra", "Cidade/UF"] },
+  veic: { aba: "Veículos", cols: ["nome"], tit: ["Veículo"] },
+  espera: { aba: "Obras em espera", cols: ["uid", "obra_id", "obra", "previsao", "prazo", "tipo_inst", "status", "atualizado", "obs", "ordem"],
+    tit: ["Código interno", "ID", "Obra", "Previsão de ida", "Prazo estimado", "Tipo de instalação", "Status", "Última atualização", "Observação", "Ordem"] },
+  manut: { aba: "Manutenções", cols: ["uid", "obra_id", "obra", "entrada", "motivo", "status", "obs", "ordem"],
+    tit: ["Código interno", "ID", "Obra", "Data de entrada", "Motivo", "Status", "Observação", "Ordem"] }
+};
+
+/* ---------- utilidades ---------- */
+function prop_(k) { return PropertiesService.getScriptProperties().getProperty(k) || ""; }
+function json_(o) { return ContentService.createTextOutput(JSON.stringify(o)).setMimeType(ContentService.MimeType.JSON); }
+function limpa_(s, max) { return String(s == null ? "" : s).trim().slice(0, max || 2000); }
+function agora_() { return new Date().toISOString(); }
+function hoje_(n) { return Utilities.formatDate(new Date(Date.now() + (n || 0) * 864e5), TZ, "yyyy-MM-dd"); }
+const ehData_ = s => /^\d{4}-\d{2}-\d{2}$/.test(String(s || ""));
+
+function planilha_() {
+  const pr = PropertiesService.getScriptProperties();
+  const id = pr.getProperty("PLANILHA_ID");
+  if (id) { try { return SpreadsheetApp.openById(id); } catch (e) { } }
+  const ss = SpreadsheetApp.create(NOME_PLANILHA);
+  pr.setProperty("PLANILHA_ID", ss.getId());
+  return ss;
+}
+
+function aba_(t) {
+  const def = T[t], ss = planilha_();
+  let sh = ss.getSheetByName(def.aba);
+  if (!sh) {
+    sh = ss.insertSheet(def.aba);
+    ["Página1", "Sheet1", "Planilha1"].forEach(n => { const p = ss.getSheetByName(n); if (p && ss.getSheets().length > 1) ss.deleteSheet(p); });
+    sh.getRange(1, 1, 1, def.tit.length).setValues([def.tit]).setFontWeight("bold").setBackground("#002B49").setFontColor("#FFFFFF").setWrap(true);
+    sh.setFrozenRows(1);
+    sh.getRange(1, 1, Math.max(sh.getMaxRows(), 2), def.cols.length).setNumberFormat("@");
+    if (t === "lanc" || t === "espera" || t === "manut") sh.hideColumns(1);
+  }
+  return sh;
+}
+
+function valor_(v) {
+  if (v instanceof Date) return Utilities.formatDate(v, TZ, "yyyy-MM-dd");
+  return v;
+}
+function ler_(t) {
+  const def = T[t], sh = aba_(t), n = sh.getLastRow();
+  if (n < 2) return [];
+  return sh.getRange(2, 1, n - 1, def.cols.length).getValues().map((l, i) => {
+    const o = { _linha: i + 2 };
+    def.cols.forEach((c, k) => o[c] = valor_(l[k]));
+    return o;
+  }).filter(o => String(o[def.cols[0]]).trim() !== "");
+}
+function linha_(t, o) {
+  return T[t].cols.map(c => { const x = o[c] == null ? "" : String(o[c]); return /^[=+\-@]/.test(x) ? "'" + x : x; });
+}
+function gravar_(t, o, linha) {
+  const def = T[t], sh = aba_(t), v = [linha_(t, o)];
+  if (linha) sh.getRange(linha, 1, 1, def.cols.length).setNumberFormat("@").setValues(v);
+  else { const l = sh.getLastRow() + 1; bloco_(sh, l, 1, def.cols.length).setNumberFormat("@").setValues(v); linha = l; }
+  return linha;
+}
+function bloco_(sh, ini, n, cols) {
+  const falta = ini + n - 1 - sh.getMaxRows();
+  if (falta > 0) sh.insertRowsAfter(sh.getMaxRows(), falta);
+  return sh.getRange(ini, 1, n, cols);
+}
+// regrava a aba inteira (listas pequenas: funcionários, obras, veículos)
+function reescrever_(t, lista) {
+  const def = T[t], sh = aba_(t), n = sh.getLastRow();
+  if (n >= 2) sh.getRange(2, 1, n - 1, def.cols.length).clearContent();
+  if (lista.length) bloco_(sh, 2, lista.length, def.cols.length).setNumberFormat("@").setValues(lista.map(o => linha_(t, o)));
+}
+function pasta_(nome) { const it = DriveApp.getFoldersByName(nome); return it.hasNext() ? it.next() : DriveApp.createFolder(nome); }
+
+/* ---------- leitura em formato do app ---------- */
+function lanc_(o) {
+  return { id: String(o.id), func: String(o.funcionario || ""), ini: String(o.inicio || ""), fim: String(o.fim || ""), tipo: String(o.tipo || "A definir"),
+    obraId: String(o.obra_id || ""), obra: String(o.obra || ""), cidade: String(o.cidade || ""), status: String(o.status || "Confirmado"),
+    veiculo: String(o.veiculo || ""), obs: String(o.obs || ""), seq: Number(o.seq) || 0 };
+}
+const funcs_ = () => ler_("func").map(f => ({ nome: String(f.nome), funcao: String(f.funcao || ""), ativo: /^s/i.test(String(f.ativo || "")), login: String(f.login || "").toLowerCase() }));
+const obras_ = () => ler_("obras").map(o => ({ id: String(o.id || ""), nome: String(o.nome), cidade: String(o.cidade || "") }));
+const veics_ = () => ler_("veic").map(v => String(v.nome));
+const lancs_ = () => ler_("lanc").map(lanc_).filter(l => l.func && ehData_(l.ini) && ehData_(l.fim));
+
+/* ---------- entrada ---------- */
+function doPost(e) {
+  let b;
+  try { b = JSON.parse(e.postData.contents); } catch (err) { return json_({ ok: false, erro: "formato inválido" }); }
+  if (!b) return json_({ ok: false, erro: "formato inválido" });
+  if (b.painel) return json_(acaoSupervisor_(b));
+  if (b.chave !== CHAVE_CAMPO) return json_({ ok: false, erro: "chave inválida" });
+  if (b.acao === "loginDiario") return json_(loginDiario_(b));
+  const u = sessao_(b.token);
+  if (!u) return json_({ ok: false, erro: "sessao" });
+  if (b.acao === "dados") return json_(dadosCampo_(u));
+  return json_({ ok: false, erro: "ação desconhecida" });
+}
+function doGet(e) { return json_({ ok: true, app: "Agenda Técnica ECTAS" }); }
+
+/* ---------- app do técnico (só leitura) ---------- */
+function dadosCampo_(u) {
+  const de = hoje_(-DIAS_PASSADO_CAMPO), ate = hoje_(DIAS_FUTURO_CAMPO);
+  const funcs = funcs_();
+  const eu = funcs.find(f => f.login && f.login === u.login);
+  return { ok: true, usuario: { login: u.login, nome: u.nome }, meuNome: eu ? eu.nome : "", hoje: hoje_(0),
+    funcionarios: funcs.filter(f => f.ativo).map(f => ({ nome: f.nome, funcao: f.funcao, ativo: true })),
+    lancamentos: lancs_().filter(l => l.fim >= de && l.ini <= ate) };
+}
+
+/* ---------- sessão do técnico: aberta com o login do Diário ---------- */
+function sessao_(token) {
+  if (!token || !/^[0-9a-f-]{20,}$/i.test(String(token))) return null;
+  const pr = PropertiesService.getScriptProperties();
+  const raw = pr.getProperty("tk_" + token);
+  if (!raw) return null;
+  const t = JSON.parse(raw);
+  if (t.exp < Date.now()) { pr.deleteProperty("tk_" + token); return null; }
+  if (Date.now() - (t.chk || 0) > REVALIDAR_MIN * 60000) {
+    const u = usuarioDiario_(t.d);
+    if (u === false) return { login: t.l, nome: t.n };   // central do Diário fora do ar: mantém a sessão
+    if (!u || u.login !== t.l) { pr.deleteProperty("tk_" + token); return null; }
+    t.chk = Date.now(); t.n = u.nome; pr.setProperty("tk_" + token, JSON.stringify(t));
+  }
+  return { login: t.l, nome: t.n };
+}
+// pergunta à central do Diário quem é o dono do token; null = inválido, false = sem resposta
+function usuarioDiario_(tokenDiario) {
+  if (!tokenDiario) return null;
+  try {
+    const r = UrlFetchApp.fetch(DIARIO_URL, { method: "post", contentType: "text/plain;charset=utf-8", muteHttpExceptions: true,
+      payload: JSON.stringify({ acao: "obras", chave: DIARIO_CHAVE, token: String(tokenDiario) }) });
+    const j = JSON.parse(r.getContentText());
+    if (j.ok && j.usuario && j.usuario.login) return { login: String(j.usuario.login).toLowerCase(), nome: String(j.usuario.nome || j.usuario.login) };
+    if (j.erro === "sessao") return null;
+    return false;
+  } catch (e) { return false; }
+}
+function loginDiario_(b) {
+  const u = usuarioDiario_(b.tokenDiario);
+  if (u === false) return { ok: false, erro: "Não consegui falar com a central do Diário de Obra. Tente de novo." };
+  if (!u) return { ok: false, erro: "sessao_diario" };
+  limparSessoes_();
+  const token = Utilities.getUuid() + Utilities.getUuid().slice(0, 8);
+  PropertiesService.getScriptProperties().setProperty("tk_" + token,
+    JSON.stringify({ l: u.login, n: u.nome, d: String(b.tokenDiario), chk: Date.now(), exp: Date.now() + DIAS_SESSAO * 864e5 }));
+  return { ok: true, token: token, usuario: u };
+}
+function limparSessoes_() {
+  const pr = PropertiesService.getScriptProperties(), todas = pr.getProperties(), t = Date.now();
+  Object.keys(todas).forEach(k => { if (k.indexOf("tk_") === 0) { try { if (JSON.parse(todas[k]).exp < t) pr.deleteProperty(k); } catch (e) { pr.deleteProperty(k); } } });
+}
+// senha do painel = senha do Painel do Diário (conferida na central do Diário, com cache de 10 minutos)
+function senhaDiario_(senha) {
+  if (!senha) return { ok: false, erro: "senha incorreta" };
+  const cache = CacheService.getScriptCache();
+  const k = "sd_" + Utilities.base64EncodeWebSafe(Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, "agd|" + senha, Utilities.Charset.UTF_8));
+  const c = cache.get(k);
+  if (c) return JSON.parse(c);
+  try {
+    const r = UrlFetchApp.fetch(DIARIO_URL + "?acao=obrasTodas&senha=" + encodeURIComponent(senha) + "&_=" + Date.now(), { muteHttpExceptions: true });
+    const j = JSON.parse(r.getContentText());
+    const out = j.ok ? { ok: true, usuarios: (j.usuarios || []).map(u => ({ login: String(u.login).toLowerCase(), nome: u.nome, ativo: u.ativo !== false })) }
+      : { ok: false, erro: j.erro === "senha vencida" ? "senha vencida" : "senha incorreta" };
+    if (out.ok) cache.put(k, JSON.stringify(out), 600);
+    return out;
+  } catch (e) { return { ok: false, erro: "Não consegui falar com a central do Diário de Obra. Tente de novo." }; }
+}
+
+/* ---------- painel do supervisor ---------- */
+function acaoSupervisor_(b) {
+  const sd = senhaDiario_(b.senha);
+  if (!sd.ok) return sd;
+  if (b.acao === "listar") return listar_(sd.usuarios);
+  const lock = LockService.getScriptLock(); lock.waitLock(20000);
+  try {
+    switch (b.acao) {
+      case "lancSalvar": return lancSalvar_(b.lancamentos || []);
+      case "lancExcluir": return lancExcluir_(String(b.id || ""));
+      case "funcSalvar": return listaSalvar_("func", (b.lista || []).map(f => ({ nome: limpa_(f.nome, 80), funcao: limpa_(f.funcao, 80), ativo: f.ativo ? "Sim" : "Não", login: limpa_(f.login, 60).toLowerCase() })).filter(f => f.nome));
+      case "obrasSalvar": return listaSalvar_("obras", (b.lista || []).map(o => ({ id: limpa_(o.id, 30), nome: limpa_(o.nome, 150), cidade: limpa_(o.cidade, 80) })).filter(o => o.nome));
+      case "veicSalvar": return listaSalvar_("veic", (b.lista || []).map(v => ({ nome: limpa_(v, 80) })).filter(v => v.nome));
+      case "pendSalvar": return pendSalvar_(b.tipo === "manut" ? "manut" : "espera", b.item || {});
+      case "pendExcluir": return pendExcluir_(b.tipo === "manut" ? "manut" : "espera", String(b.uid || ""));
+      case "backupAgora": garantirGatilhoBackup_(); return backupSemanal();
+    }
+    return { ok: false, erro: "ação desconhecida" };
+  } finally { lock.releaseLock(); }
+}
+
+function listar_(usuariosDiario) {
+  try { garantirGatilhoBackup_(); } catch (e) { }
+  const pend = t => ler_(t).map(o => { const x = Object.assign({}, o); delete x._linha; x.uid = String(x.uid); return x; });
+  return { ok: true, hoje: hoje_(0), planilha: planilha_().getUrl(), usuarios: usuariosDiario || [],
+    funcionarios: funcs_(), obras: obras_(), veiculos: veics_(), lancamentos: lancs_(),
+    espera: pend("espera"), manutencoes: pend("manut") };
+}
+
+function lancLimpo_(l) {
+  const o = { id: limpa_(l.id, 60) || ("l" + Utilities.getUuid().replace(/-/g, "").slice(0, 14)), funcionario: limpa_(l.func, 80),
+    inicio: limpa_(l.ini, 10), fim: limpa_(l.fim, 10), tipo: TIPOS.indexOf(l.tipo) >= 0 ? l.tipo : "A definir",
+    obra_id: limpa_(l.obraId, 30), obra: limpa_(l.obra, 150), cidade: limpa_(l.cidade, 80),
+    status: l.status === "Planejado" ? "Planejado" : "Confirmado", veiculo: limpa_(l.veiculo, 80), obs: limpa_(l.obs, 1000),
+    seq: String(Date.now()), alterado_em: agora_() };
+  if (!o.funcionario) throw new Error("Escolha o funcionário.");
+  if (!ehData_(o.inicio) || !ehData_(o.fim) || o.fim < o.inicio) throw new Error("Confira as datas de início e término.");
+  return o;
+}
+function lancSalvar_(lista) {
+  if (!lista.length) return { ok: false, erro: "nada para salvar" };
+  let limpos;
+  try { limpos = lista.slice(0, 60).map(lancLimpo_); } catch (e) { return { ok: false, erro: e.message }; }
+  const atuais = ler_("lanc"), porId = {};
+  atuais.forEach(a => porId[String(a.id)] = a._linha);
+  const salvos = [];
+  limpos.forEach((o, i) => { o.seq = String(Date.now() + i); gravar_("lanc", o, porId[o.id]); salvos.push(lanc_(o)); });
+  return { ok: true, lancamentos: salvos };
+}
+function lancExcluir_(id) {
+  const a = ler_("lanc").find(x => String(x.id) === id);
+  if (!a) return { ok: true };
+  aba_("lanc").deleteRow(a._linha);
+  return { ok: true };
+}
+function listaSalvar_(t, lista) { reescrever_(t, lista); return { ok: true }; }
+function pendSalvar_(t, it) {
+  const def = T[t], o = {};
+  def.cols.forEach(c => o[c] = limpa_(it[c], c === "obs" || c === "motivo" ? 1000 : 150));
+  if (!o.obra) return { ok: false, erro: "Informe a obra." };
+  if (!o.uid) o.uid = (t === "manut" ? "m" : "e") + Utilities.getUuid().replace(/-/g, "").slice(0, 12);
+  if (!o.ordem) o.ordem = String(Date.now());
+  const a = ler_(t).find(x => String(x.uid) === o.uid);
+  gravar_(t, o, a ? a._linha : null);
+  return { ok: true, item: o };
+}
+function pendExcluir_(t, uid) {
+  const a = ler_(t).find(x => String(x.uid) === uid);
+  if (a) aba_(t).deleteRow(a._linha);
+  return { ok: true };
+}
+
+/* ---------- cópia de segurança semanal ---------- */
+function backupSemanal() {
+  const ss = planilha_(), pasta = pasta_(PASTA_BACKUP);
+  DriveApp.getFileById(ss.getId()).makeCopy("Backup " + NOME_PLANILHA + " " + Utilities.formatDate(new Date(), TZ, "yyyy-MM-dd HH'h'mm"), pasta);
+  const arqs = []; const it = pasta.getFiles();
+  while (it.hasNext()) arqs.push(it.next());
+  arqs.sort((a, b) => b.getDateCreated() - a.getDateCreated()).slice(BACKUPS_MANTER).forEach(f => f.setTrashed(true));
+  return { ok: true };
+}
+function garantirGatilhoBackup_() {
+  if (prop_("GATILHO_BACKUP")) return;
+  if (!ScriptApp.getProjectTriggers().some(t => t.getHandlerFunction() === "backupSemanal"))
+    ScriptApp.newTrigger("backupSemanal").timeBased().onWeekDay(ScriptApp.WeekDay.SUNDAY).atHour(3).create();
+  PropertiesService.getScriptProperties().setProperty("GATILHO_BACKUP", "1");
+}
+
+/* ---------- instalação ---------- */
+function configurar() {
+  Object.keys(T).forEach(aba_);
+  if (typeof CARGA_AGENDA === "undefined") { Logger.log("Arquivo Carga.gs não encontrado: as abas foram criadas vazias."); }
+  else {
+    const C = CARGA_AGENDA;
+    if (!ler_("func").length) reescrever_("func", C.funcionarios.map(f => ({ nome: f[0], funcao: f[1], ativo: f[2] ? "Sim" : "Não", login: f[3] || "" })));
+    if (!ler_("obras").length) reescrever_("obras", C.obras.map(o => ({ id: o[0], nome: o[1], cidade: o[2] })));
+    if (!ler_("veic").length) reescrever_("veic", C.veiculos.map(v => ({ nome: v })));
+    if (!ler_("espera").length) reescrever_("espera", C.espera.map((e, i) => ({ uid: "e" + i, obra_id: e[0], obra: e[1], previsao: e[2], prazo: e[3], tipo_inst: e[4], status: e[5], atualizado: e[6], obs: e[7], ordem: String(i) })));
+    if (!ler_("manut").length) reescrever_("manut", C.manutencoes.map((m, i) => ({ uid: "m" + i, obra_id: m[0], obra: m[1], entrada: m[2], motivo: m[3], status: m[4], obs: m[5], ordem: String(i) })));
+    if (!ler_("lanc").length) reescrever_("lanc", C.lancamentos.map(l => ({ id: l[0], funcionario: l[1], inicio: l[2], fim: l[3], tipo: l[4], obra_id: l[5], obra: l[6],
+      cidade: l[7], status: l[8], veiculo: l[9], obs: l[10], seq: String(l[11]), alterado_em: "" })));
+  }
+  garantirGatilhoBackup_();
+  Logger.log("Planilha pronta: " + planilha_().getUrl());
+}
+function testarLigacaoDiario() {
+  const r = UrlFetchApp.fetch(DIARIO_URL + "?acao=ping&_=" + Date.now(), { muteHttpExceptions: true });
+  Logger.log("Central do Diário respondeu: HTTP " + r.getResponseCode());
+}
