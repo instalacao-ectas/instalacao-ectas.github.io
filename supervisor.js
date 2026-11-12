@@ -402,7 +402,7 @@ function renderFaltas(L){
     const comeco=de&&de>ini?de:ini;
     const faltam=[],jaVistos=[];
     for(let d=dia(comeco);iso(d)<=ate;d.setDate(d.getDate()+1)){
-      if(d.getDay()===0)continue;
+      if(d.getDay()===0||d.getDay()===6)continue;   // domingo e sábado não cobram RDO (sábado é opcional)
       const s=iso(d);if(datas.has(s))continue;
       (ciente.has(o+"|"+s)?jaVistos:faltam).push(s);
     }

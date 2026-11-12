@@ -686,14 +686,14 @@ function dataTexto_(v, tz) {
   return String(v || "").slice(0, 10);
 }
 
-// Todo dia: obras ativas que não mandaram o RDO de ontem (segunda a sábado)
+// Todo dia: obras ativas que não mandaram o RDO de ontem (segunda a sexta; sábado é opcional e não gera aviso)
 function emailDiario(teste) {
   const tz = "America/Sao_Paulo";
   const emails = prop_("EMAILS_AVISO");
   if (!emails) return { ok: false, erro: "Cadastre pelo menos um e-mail para o aviso." };
   const ontem = new Date(Date.now() - 24 * 3600 * 1000);
   const diaSemana = Number(Utilities.formatDate(ontem, tz, "u")); // 1 = segunda ... 7 = domingo
-  if (diaSemana === 7 && teste !== true) return { ok: true, pulado: "domingo" };
+  if ((diaSemana === 6 || diaSemana === 7) && teste !== true) return { ok: true, pulado: diaSemana === 6 ? "sábado" : "domingo" };
   const d = Utilities.formatDate(ontem, tz, "yyyy-MM-dd");
   const dBr = Utilities.formatDate(ontem, tz, "dd/MM/yyyy");
   const nomes = ["", "segunda", "terça", "quarta", "quinta", "sexta", "sábado", "domingo"];
@@ -704,8 +704,11 @@ function emailDiario(teste) {
     .filter(r => dataTexto_(r.data, tz) === d);
   const porId = {};
   rdos.forEach(r => { const k = norm_(r.idobra); (porId[k] = porId[k] || []).push(r); });
-  const faltam = obras.filter(o => !porId[norm_(o.id)]);
+  // dias que o supervisor marcou como "Estou ciente" no painel não entram como pendentes
+  const ciente = new Set(lerCiente_());
+  const faltam = obras.filter(o => !porId[norm_(o.id)] && !ciente.has("ID:" + norm_(o.id) + "|" + d));
   const enviaram = obras.filter(o => porId[norm_(o.id)]);
+  const vistas = obras.filter(o => !porId[norm_(o.id)] && ciente.has("ID:" + norm_(o.id) + "|" + d));
   const esc = t => String(t == null ? "" : t).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
   const nomeObra = o => esc(o.id + " - " + o.obra + (o.local ? " / " + o.local : ""));
   const painel = "https://instalacao-ectas.github.io/supervisor.html";
@@ -717,8 +720,9 @@ function emailDiario(teste) {
     html += '<h3 style="color:#B54708;margin:16px 0 6px">⚠ ' + faltam.length + ' obra' + (faltam.length > 1 ? "s" : "") + ' sem RDO</h3><ul>' +
       faltam.map(o => '<li>' + nomeObra(o) + '</li>').join("") + '</ul>';
   } else {
-    html += '<p style="color:#1F7A4D;font-weight:bold">✓ Todas as ' + obras.length + ' obras ativas enviaram o RDO.</p>';
+    html += '<p style="color:#1F7A4D;font-weight:bold">' + (vistas.length ? '✓ Nenhuma obra pendente.' : '✓ Todas as ' + obras.length + ' obras ativas enviaram o RDO.') + '</p>';
   }
+  if (vistas.length) html += '<p style="font-size:13px;color:#606060">Sem RDO, mas marcadas como ciente pelo supervisor: ' + vistas.map(nomeObra).join("; ") + '.</p>';
   if (enviaram.length) {
     html += '<h3 style="color:#0073A8;margin:16px 0 6px">Obras com RDO</h3><table style="border-collapse:collapse;font-size:14px">' +
       '<tr><th align="left" style="padding:4px 10px 4px 0">Obra</th><th align="right" style="padding:4px 10px">Efetivo</th><th align="left" style="padding:4px 10px">Ocorrência</th></tr>' +
@@ -736,8 +740,8 @@ function emailDiario(teste) {
         : 'A senha do Painel do Supervisor vence em <b>' + est.diasRestantes + ' dia' + (est.diasRestantes > 1 ? 's' : '') + '</b> (troca obrigatória a cada 3 meses). Troque pelo painel, na seção "Senha do painel".') + '</p>';
   }
   html += '<p style="margin-top:18px"><a href="' + painel + '" style="color:#0073A8">Abrir o Painel do Supervisor</a></p>' +
-    '<p style="font-size:12px;color:#606060">Aviso automático enviado todo dia, de segunda a sábado, sobre o dia anterior. Para mudar os destinatários ou o horário, use o painel.</p></div>';
-  const assunto = (teste === true ? "[Teste] " : "") + "RDO " + dBr + ": " + (faltam.length ? faltam.length + " obra" + (faltam.length > 1 ? "s" : "") + " sem RDO" : "todas as obras enviaram");
+    '<p style="font-size:12px;color:#606060">Aviso automático enviado de terça a sábado, sobre o dia útil anterior (sábado é opcional e não gera aviso). Para mudar os destinatários ou o horário, use o painel.</p></div>';
+  const assunto = (teste === true ? "[Teste] " : "") + "RDO " + dBr + ": " + (faltam.length ? faltam.length + " obra" + (faltam.length > 1 ? "s" : "") + " sem RDO" : vistas.length ? "nenhuma obra pendente" : "todas as obras enviaram");
   MailApp.sendEmail({ to: emails, subject: assunto, htmlBody: html, name: "Diário de Obra ECTAS" });
   return { ok: true, enviado: emails, faltam: faltam.length };
 }
