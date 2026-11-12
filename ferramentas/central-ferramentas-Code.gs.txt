@@ -21,6 +21,12 @@ const BACKUPS_MANTER = 12;
 const PAINEL_URL = "https://instalacao-ectas.github.io/ferramentas/supervisor.html";
 const TZ = "America/Sao_Paulo";
 
+/* Acesso único com o Diário de Obra: técnicos usam o mesmo usuário e senha do Diário,
+   e o painel usa a mesma senha do Painel do Diário. Quem valida é a central do Diário. */
+const DIARIO_URL = "https://script.google.com/macros/s/AKfycbwm4iDoUQ32nVi2vRhRKCr01LoFGXAkA2zWl3lEWunhhHS2h4_0e3EOEtIzmHSL-LPKrg/exec";
+const DIARIO_CHAVE = "ectas-rdo-campo-2026";
+const REVALIDAR_MIN = 15;   // de quanto em quanto tempo a sessão é conferida de novo com o Diário
+
 /* ---------- abas da planilha ---------- */
 const T = {
   ferramentas: { aba: "Ferramentas", cols: ["id", "item", "descricao", "qtd", "grupo", "ativa"],
@@ -161,6 +167,7 @@ function doPost(e) {
   if (b.painel) return json_(acaoSupervisor_(b));
   if (b.chave !== CHAVE_CAMPO) return json_({ ok: false, erro: "chave inválida" });
   if (b.acao === "login") return json_(login_(b));
+  if (b.acao === "loginDiario") return json_(loginDiario_(b));
   const u = sessao_(b.token);
   if (!u) return json_({ ok: false, erro: "sessao" });
   if (b.acao === "dados") return json_(dadosCampo_(u));
@@ -292,10 +299,58 @@ function sessao_(token) {
   if (!raw) return null;
   const t = JSON.parse(raw);
   if (t.exp < Date.now()) { pr.deleteProperty("tk_" + token); return null; }
+  if (t.d) {   // sessão aberta com o login do Diário: confere de novo a cada REVALIDAR_MIN minutos
+    if (Date.now() - (t.chk || 0) > REVALIDAR_MIN * 60000) {
+      const u = usuarioDiario_(t.d);
+      if (u === false) return { login: t.l, nome: t.n, ativo: true };   // central do Diário fora do ar: mantém a sessão
+      if (!u || u.login !== t.l) { pr.deleteProperty("tk_" + token); return null; }
+      t.chk = Date.now(); t.n = u.nome; pr.setProperty("tk_" + token, JSON.stringify(t));
+    }
+    return { login: t.l, nome: t.n, ativo: true };
+  }
   const u = lerUsuarios_().find(x => x.login === t.l);
   if (!u || !u.ativo || u.versao !== t.v) { pr.deleteProperty("tk_" + token); return null; }
   return u;
 }
+// pergunta à central do Diário quem é o dono do token; null = inválido, false = sem resposta
+function usuarioDiario_(tokenDiario) {
+  if (!tokenDiario) return null;
+  try {
+    const r = UrlFetchApp.fetch(DIARIO_URL, { method: "post", contentType: "text/plain;charset=utf-8", muteHttpExceptions: true,
+      payload: JSON.stringify({ acao: "obras", chave: DIARIO_CHAVE, token: String(tokenDiario) }) });
+    const j = JSON.parse(r.getContentText());
+    if (j.ok && j.usuario && j.usuario.login) return { login: String(j.usuario.login).toLowerCase(), nome: String(j.usuario.nome || j.usuario.login) };
+    if (j.erro === "sessao") return null;
+    return false;
+  } catch (e) { return false; }
+}
+function loginDiario_(b) {
+  const u = usuarioDiario_(b.tokenDiario);
+  if (u === false) return { ok: false, erro: "Não consegui falar com a central do Diário de Obra. Tente de novo." };
+  if (!u) return { ok: false, erro: "sessao_diario" };
+  limparSessoes_();
+  const token = Utilities.getUuid() + Utilities.getUuid().slice(0, 8);
+  PropertiesService.getScriptProperties().setProperty("tk_" + token,
+    JSON.stringify({ l: u.login, n: u.nome, d: String(b.tokenDiario), chk: Date.now(), exp: Date.now() + DIAS_SESSAO * 864e5 }));
+  return { ok: true, token: token, usuario: u };
+}
+// senha do painel = senha do Painel do Diário (conferida na central do Diário, com cache de 10 minutos)
+function senhaDiario_(senha) {
+  if (!senha) return { ok: false, erro: "senha incorreta" };
+  const cache = CacheService.getScriptCache();
+  const k = "sd_" + Utilities.base64EncodeWebSafe(Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, "fer|" + senha, Utilities.Charset.UTF_8));
+  const c = cache.get(k);
+  if (c) return JSON.parse(c);
+  try {
+    const r = UrlFetchApp.fetch(DIARIO_URL + "?acao=obrasTodas&senha=" + encodeURIComponent(senha) + "&_=" + Date.now(), { muteHttpExceptions: true });
+    const j = JSON.parse(r.getContentText());
+    const out = j.ok ? { ok: true, usuarios: (j.usuarios || []).map(u => ({ login: String(u.login).toLowerCase(), nome: u.nome, ativo: u.ativo !== false })) }
+      : { ok: false, erro: j.erro === "senha vencida" ? "senha vencida" : "senha incorreta" };
+    if (out.ok) cache.put(k, JSON.stringify(out), 600);
+    return out;
+  } catch (e) { return { ok: false, erro: "Não consegui falar com a central do Diário de Obra. Tente de novo." }; }
+}
+
 function limparSessoes_() {
   const pr = PropertiesService.getScriptProperties(), todas = pr.getProperties(), t = Date.now();
   Object.keys(todas).forEach(k => { if (k.indexOf("tk_") === 0) { try { if (JSON.parse(todas[k]).exp < t) pr.deleteProperty(k); } catch (e) { pr.deleteProperty(k); } } });
@@ -351,12 +406,10 @@ function recuperar_(b) {
 
 /* ---------- painel do supervisor ---------- */
 function acaoSupervisor_(b) {
-  const senhaAtual = prop_("SENHA_SUPERVISOR");
-  if (!senhaAtual) return { ok: false, erro: "sem senha" };
-  if (b.senha !== senhaAtual) return { ok: false, erro: "senha incorreta" };
-  const est = estadoSenha_();
-  if (b.acao !== "senhaTrocar" && est.vencida) return { ok: false, erro: "senha vencida", senhaInfo: est };
-  if (b.acao === "listar") return listar_(est);
+  const sd = senhaDiario_(b.senha);   // mesma senha do Painel do Diário de Obra
+  if (!sd.ok) return sd;
+  const est = null;
+  if (b.acao === "listar") return listar_(est, sd.usuarios);
   if (b.acao === "arquivo") {
     try { const f = DriveApp.getFileById(String(b.id)); return { ok: true, b64: Utilities.base64Encode(f.getBlob().getBytes()), tipo: f.getMimeType() }; }
     catch (err) { return { ok: false, erro: "arquivo não encontrado" }; }
@@ -371,30 +424,18 @@ function acaoSupervisor_(b) {
       case "ferramentaExcluir": return ferramentaExcluir_(String(b.id || ""));
       case "pecasCriar": return pecasCriar_(b);
       case "pecaSalvar": return pecaSalvar_(b.peca || {});
-      case "usuarioSalvar": return salvarUsu_(b.usuario || {});
       case "configSalvar": return salvarConfig_(b.config || {});
       case "emailTeste": return emailDiario(true);
       case "backupAgora": garantirGatilhoBackup_(); return backupSemanal();
-      case "recupEmailSalvar": {
-        const e = String(b.email || "").trim();
-        if (e && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e)) return { ok: false, erro: "E-mail inválido." };
-        PropertiesService.getScriptProperties().setProperty("EMAIL_RECUP", e); return { ok: true };
-      }
-      case "senhaTrocar": {
-        const nova = String(b.nova || "");
-        if (nova.length < 6) return { ok: false, erro: "A nova senha precisa ter pelo menos 6 caracteres." };
-        if (nova === senhaAtual) return { ok: false, erro: "A nova senha precisa ser diferente da atual." };
-        definirSenha_(nova); return { ok: true, senhaInfo: estadoSenha_() };
-      }
     }
     return { ok: false, erro: "ação desconhecida" };
   } finally { lock.releaseLock(); }
 }
 
-function listar_(est) {
+function listar_(est, usuariosDiario) {
   try { garantirGatilhoBackup_(); } catch (e) { }
-  return { ok: true, senhaInfo: est, prazo: PRAZO_CONFERENCIA, planilha: planilha_().getUrl(),
-    ferramentas: ferramentas_(), kits: kits_(), pecas: pecas_(), tecnicos: listarUsu_(),
+  return { ok: true, senhaInfo: est, senhaUnica: true, prazo: PRAZO_CONFERENCIA, planilha: planilha_().getUrl(),
+    ferramentas: ferramentas_(), kits: kits_(), pecas: pecas_(), tecnicos: usuariosDiario || [],
     conferencias: ler_("conf").map(conf_), ocorrencias: ler_("oc").map(oc_), config: config_() };
 }
 
@@ -542,9 +583,6 @@ function emailDiario(teste) {
   html += '<h3 style="color:#0073A8;margin:16px 0 6px">Para o supervisor</h3><ul>' +
     '<li><b>' + pendentes.length + '</b> conferência(s) aguardando aprovação</li><li><b>' + abertas.length + '</b> ocorrência(s) ou pedido(s) em aberto</li></ul>';
   if (!atrasados.length && !comFalta.length) html += '<p style="color:#1F7A4D;font-weight:bold">✓ Todos os kits estão conferidos no prazo e completos.</p>';
-  const est = estadoSenha_();
-  if (est.diasRestantes <= DIAS_AVISO_SENHA) html += '<p style="background:#FEF3E2;border:1px solid #B54708;padding:10px 12px;color:#7A2E0E">🔒 ' +
-    (est.vencida ? 'A senha do Painel de Ferramentas <b>venceu</b>. Entre no painel e crie uma nova.' : 'A senha do Painel de Ferramentas vence em <b>' + est.diasRestantes + ' dia(s)</b>. Troque pelo painel, em Configurações.') + '</p>';
   html += '<p style="margin-top:18px"><a href="' + PAINEL_URL + '" style="color:#0073A8">Abrir o Painel do Supervisor</a></p>' +
     '<p style="font-size:12px;color:#606060">Aviso automático de segunda a sábado. Para mudar os destinatários ou o horário, use o painel.</p></div>';
   const assunto = (teste === true ? "[Teste] " : "") + "Ferramentas: " + (atrasados.length ? atrasados.length + " kit(s) com conferência atrasada" : comFalta.length ? comFalta.length + " kit(s) com pendência" : "kits em dia") +
