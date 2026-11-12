@@ -3,7 +3,7 @@
 O app do técnico fica em **https://instalacao-ectas.github.io/ferramentas/**.
 O painel do supervisor fica em **https://instalacao-ectas.github.io/ferramentas/supervisor.html**.
 
-Os dois funcionam no mesmo modelo do Diário de Obra: os dados ficam numa planilha do Google e a central é um Google Apps Script. O cadastro de usuários é separado do Diário.
+Os dois funcionam no mesmo modelo do Diário de Obra: os dados ficam numa planilha do Google e a central é um Google Apps Script. O acesso é único com o Diário de Obra: técnicos usam o mesmo usuário e senha, e o painel usa a mesma senha do Painel do Diário. A central de Ferramentas confere tudo na central do Diário.
 
 ## Ligar a central (uma vez só, cerca de 10 minutos)
 
@@ -19,12 +19,14 @@ Os dois funcionam no mesmo modelo do Diário de Obra: os dados ficam numa planil
 
 ## Primeiro acesso do supervisor
 
-1. Abra o painel. Na primeira vez ele pede para **criar a senha do painel** (vence a cada 90 dias).
-2. Em **Cadastro > Técnicos**, cadastre cada técnico com usuário e senha.
+1. Abra o painel com a mesma senha do Painel do Diário de Obra.
+2. Os técnicos são cadastrados no Painel do Diário de Obra (valem para os dois aplicativos).
 3. Em **Cadastro > Kits**, preencha responsável e local, e marque quais técnicos podem conferir cada kit (nenhum marcado = todos).
-4. Em **Configurações**, cadastre os e-mails do aviso diário e o e-mail de recuperação da senha.
+4. Em **Configurações**, cadastre os e-mails do aviso diário.
 5. Em **Códigos e etiquetas**, baixe o PDF das etiquetas (Pimaco A4356 ou equivalente, 33 por folha).
 
 ## Atualizar a central depois
 
 Ao trocar o código do Apps Script, use **Implantar > Gerenciar implantações > Editar > Nova versão**. Assim o endereço `/exec` continua o mesmo.
+
+Se o Google pedir nova autorização (por exemplo, para "conectar a um serviço externo"), rode a função **testarLigacaoDiario** pelo editor e aprove.
