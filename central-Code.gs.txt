@@ -1,0 +1,753 @@
+/**
+ * Diário de Obra ECTAS - Base central
+ * Recebe os RDOs do app de campo, guarda numa planilha (uma linha por RDO)
+ * e as fotos numa pasta do Google Drive organizada por obra.
+ * O Painel do Supervisor lê os dados daqui, protegido por senha.
+ *
+ * A senha do painel é cadastrada pelo próprio supervisor no primeiro acesso.
+ * A planilha "Diário de Obra ECTAS - Base" é criada no Drive na primeira execução.
+ */
+const CHAVE_CAMPO = "ectas-rdo-campo-2026";
+const DIAS_VALIDADE_SENHA = 90;   // a senha do painel vence a cada 3 meses
+const DIAS_AVISO_SENHA = 7;       // aviso antes de vencer
+const EMAIL_DONO = "diariodeobra.ectas@gmail.com"; // recebe o código de recuperação se nenhum outro for cadastrado
+const NOME_PLANILHA = "Diário de Obra ECTAS - Base";
+
+const ABA = "RDOs";
+const PASTA_RAIZ = "Diário de Obra ECTAS - Fotos";
+const COLUNAS = [
+  "uid", "recebido_em", "idobra", "obra", "local", "data", "rdo", "resp",
+  "hini", "hfim", "clima_manha", "clima_tarde",
+  "lider", "montador", "auxiliar", "outros", "total",
+  "ativ", "equip", "mat", "ocor", "obs",
+  "n_fotos", "fotos", "pasta_fotos", "salvo_no_celular", "pdf", "usuario"
+];
+const TITULOS = [
+  "Código interno", "Recebido em", "ID", "Obra", "Local", "Data", "Nº RDO", "Responsável",
+  "Início", "Fim", "Tempo manhã", "Tempo tarde",
+  "Líder", "Montador", "Auxiliar", "Outros", "Total efetivo",
+  "Atividades executadas", "Equipamentos", "Materiais recebidos", "Ocorrências", "Observações",
+  "Nº de fotos", "Fotos (id e legenda)", "Pasta das fotos", "Salvo no celular em", "PDF do RDO", "Usuário (login)"
+];
+
+function definirSenha_(nova) {
+  const pr = PropertiesService.getScriptProperties();
+  pr.setProperty("SENHA_SUPERVISOR", String(nova));
+  pr.setProperty("SENHA_DATA", new Date().toISOString());
+}
+
+// situação da senha: quando foi trocada, quando vence e quantos dias faltam
+function estadoSenha_() {
+  const pr = PropertiesService.getScriptProperties();
+  let d = pr.getProperty("SENHA_DATA");
+  if (!d) { d = new Date().toISOString(); pr.setProperty("SENHA_DATA", d); }
+  const trocada = new Date(d);
+  const vence = new Date(trocada.getTime() + DIAS_VALIDADE_SENHA * 864e5);
+  const dias = Math.ceil((vence.getTime() - Date.now()) / 864e5);
+  return { trocadaEm: trocada.toISOString(), venceEm: vence.toISOString(), diasRestantes: dias, vencida: dias <= 0, validadeDias: DIAS_VALIDADE_SENHA, avisoDias: DIAS_AVISO_SENHA };
+}
+
+function prop_(k) { return PropertiesService.getScriptProperties().getProperty(k) || ""; }
+function json_(o) { return ContentService.createTextOutput(JSON.stringify(o)).setMimeType(ContentService.MimeType.JSON); }
+
+function planilha_() {
+  const pr = PropertiesService.getScriptProperties();
+  const id = pr.getProperty("PLANILHA_ID");
+  if (id) { try { return SpreadsheetApp.openById(id); } catch (e) { } }
+  const ss = SpreadsheetApp.create(NOME_PLANILHA);
+  pr.setProperty("PLANILHA_ID", ss.getId());
+  return ss;
+}
+
+function aba_() {
+  const ss = planilha_();
+  let sh = ss.getSheetByName(ABA);
+  if (!sh) {
+    sh = ss.insertSheet(ABA);
+    const p1 = ss.getSheetByName("Página1") || ss.getSheetByName("Sheet1") || ss.getSheetByName("Planilha1");
+    if (p1 && ss.getSheets().length > 1) ss.deleteSheet(p1);
+    sh.getRange(1, 1, 1, TITULOS.length).setValues([TITULOS])
+      .setFontWeight("bold").setBackground("#002B49").setFontColor("#FFFFFF");
+    sh.setFrozenRows(1);
+    sh.getRange("A:A").setNumberFormat("@");
+    sh.hideColumns(1);
+    sh.hideColumns(24);
+    sh.setColumnWidths(18, 5, 320);
+  }
+  // garante o cabeçalho de colunas novas em planilhas já existentes
+  if (sh.getRange(1, TITULOS.length).getValue() === "") {
+    sh.getRange(1, 1, 1, TITULOS.length).setValues([TITULOS])
+      .setFontWeight("bold").setBackground("#002B49").setFontColor("#FFFFFF");
+  }
+  // ID, data e nº do RDO como texto (mantém zeros à esquerda, ex.: 0123)
+  const pr = PropertiesService.getScriptProperties();
+  if (pr.getProperty("FORMATO_TEXTO") !== "2") {
+    ["C:C", "F:F", "G:G"].forEach(c => sh.getRange(c).setNumberFormat("@"));
+    pr.setProperty("FORMATO_TEXTO", "2");
+  }
+  return sh;
+}
+
+function pasta_(nome, mae) {
+  const it = (mae ? mae.getFoldersByName(nome) : DriveApp.getFoldersByName(nome));
+  return it.hasNext() ? it.next() : (mae ? mae.createFolder(nome) : DriveApp.createFolder(nome));
+}
+
+function norm_(s) { return String(s == null ? "" : s).normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().replace(/\s+/g, " ").toUpperCase(); }
+
+// Mesma obra = mesmo ID (sem diferença de maiúsculas, acentos e espaços); sem ID, pelo nome.
+function pastaDaObra_(r, raiz) {
+  const id = norm_(r.idobra), nome = norm_(r.obra);
+  const it = raiz.getFolders();
+  while (it.hasNext()) {
+    const f = it.next(), n = norm_(f.getName());
+    if (id ? (n === id || n.indexOf(id + " - ") === 0) : n === nome) return f;
+  }
+  const titulo = [String(r.idobra || "").trim(), String(r.obra || "").trim()].filter(String).join(" - ") || "Sem obra";
+  return raiz.createFolder(titulo);
+}
+
+function linhaDoUid_(sh, uid) {
+  const n = sh.getLastRow();
+  if (n < 2) return 0;
+  const ids = sh.getRange(2, 1, n - 1, 1).getValues();
+  for (let i = 0; i < ids.length; i++) if (String(ids[i][0]) === uid) return i + 2;
+  return 0;
+}
+
+function lerLinha_(sh, linha) {
+  const v = sh.getRange(linha, 1, 1, COLUNAS.length).getValues()[0];
+  const o = {};
+  COLUNAS.forEach((c, i) => o[c] = v[i]);
+  return o;
+}
+
+function limpa_(s, max) { return String(s == null ? "" : s).slice(0, max || 5000); }
+
+/* ---------- App de campo envia ---------- */
+function doPost(e) {
+  let body;
+  try { body = JSON.parse(e.postData.contents); } catch (err) { return json_({ ok: false, erro: "formato inválido" }); }
+  if (body && (body.acao === "recuperarPedir" || body.acao === "recuperarConfirmar")) {
+    const lk = LockService.getScriptLock(); lk.waitLock(20000);
+    try { return json_(recuperar_(body)); } finally { lk.releaseLock(); }
+  }
+  // login do encarregado vem antes: ele também envia "senha"
+  if (body && body.acao === "login") {
+    if (body.chave !== CHAVE_CAMPO) return json_({ ok: false, erro: "chave inválida" });
+    return json_(login_(body));
+  }
+  if (body && body.senha !== undefined) return json_(acaoSupervisor_(body));
+  if (!body || body.chave !== CHAVE_CAMPO) return json_({ ok: false, erro: "chave inválida" });
+  const u = sessao_(body.token);
+  if (!u) return json_({ ok: false, erro: "sessao" });
+  if (body.acao === "obras") return json_({ ok: true, obras: obrasParaCampo_(u), usuario: { login: u.login, nome: u.nome } });
+  const lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    if (body.acao === "salvar") return json_(salvarRdo_(body.rdo || {}, u));
+    if (body.acao === "ultimoRdo") {
+      if (!obraPermitida_(body.idobra, u)) return json_({ ok: false, erro: "Obra fora da sua lista." });
+      return json_({ ok: true, rdo: ultimoRdo_(body.idobra, limpa_(body.antesDe, 10)) });
+    }
+    if (body.acao === "verificarDia") {
+      const dup = rdoDoDia_(aba_(), body.idobra, body.data, limpa_(body.uid, 80));
+      return json_({ ok: true, existe: dup ? { rdo: dup.rdo, resp: dup.resp, erro: msgDuplicado_(dup, body.idobra, body.data) } : null });
+    }
+    const sh = aba_(), linha = linhaDoUid_(sh, limpa_(body.uid, 80));
+    if (linha) { const dono = lerLinha_(sh, linha).usuario; if (dono && dono !== u.login) return json_({ ok: false, erro: "Este RDO é de outro responsável." }); }
+    if (body.acao === "foto") return json_(salvarFoto_(body));
+    if (body.acao === "fim") return json_(fecharFotos_(body));
+    if (body.acao === "pdf") return json_(salvarPdf_(body));
+    return json_({ ok: false, erro: "ação desconhecida" });
+  } finally { lock.releaseLock(); }
+}
+
+function salvarRdo_(r, u) {
+  const uid = limpa_(r.uid, 80);
+  if (!uid) return { ok: false, erro: "sem uid" };
+  const sh = aba_();
+  let linha = linhaDoUid_(sh, uid);
+  const antigo = linha ? lerLinha_(sh, linha) : null;
+  if (antigo && antigo.usuario && antigo.usuario !== u.login) return { ok: false, codigo: "outro", erro: "Este RDO é de outro responsável." };
+  // edição: até 48 h da criação, com 24 h de folga para quem ficou sem internet
+  const criado = (/^rdo-(\d{12,})/.exec(uid) || [])[1];
+  if (antigo && criado && Date.now() - Number(criado) > 72 * 3600 * 1000) return { ok: false, codigo: "prazo", erro: "O prazo para editar este RDO terminou." };
+  if (!obraPermitida_(r.idobra, u)) return { ok: false, codigo: "obra", erro: "A obra " + limpa_(r.idobra, 40) + " não está sob sua responsabilidade." };
+  // regra: um único RDO por obra (ID) em cada dia
+  const dup = rdoDoDia_(sh, r.idobra, r.data, uid);
+  if (dup) return { ok: false, codigo: "duplicado", existente: dup, erro: msgDuplicado_(dup, r.idobra, r.data) };
+  const n = k => parseInt(r[k], 10) || 0;
+  const reg = {
+    uid: uid, recebido_em: new Date(),
+    idobra: limpa_(r.idobra, 40), obra: limpa_(r.obra, 120), local: limpa_(r.local, 120),
+    data: limpa_(r.data, 10), rdo: limpa_(r.rdo, 10), resp: u.nome,
+    hini: limpa_(r.hini, 5), hfim: limpa_(r.hfim, 5),
+    clima_manha: limpa_(r.clima_manha, 40), clima_tarde: limpa_(r.clima_tarde, 40),
+    lider: n("m_lid"), montador: n("m_mon"), auxiliar: n("m_aux"), outros: n("m_out"),
+    total: n("m_lid") + n("m_mon") + n("m_aux") + n("m_out"),
+    ativ: limpa_(r.ativ), equip: limpa_(r.equip), mat: limpa_(r.mat), ocor: limpa_(r.ocor), obs: limpa_(r.obs),
+    n_fotos: parseInt(r.n_fotos, 10) || 0,
+    fotos: antigo ? antigo.fotos : "[]",
+    pasta_fotos: antigo ? antigo.pasta_fotos : "",
+    salvo_no_celular: limpa_(r.salvoEm, 40),
+    pdf: antigo ? antigo.pdf : "",
+    usuario: u.login
+  };
+  const valores = [COLUNAS.map(c => reg[c])];
+  if (linha) sh.getRange(linha, 1, 1, COLUNAS.length).setValues(valores);
+  else { sh.appendRow(valores[0]); linha = sh.getLastRow(); }
+  sh.getRange(linha, 6).setNumberFormat("@");
+  return { ok: true, uid: uid, novo: !antigo };
+}
+
+function dataIso_(v) {
+  if (v instanceof Date) return Utilities.formatDate(v, "America/Sao_Paulo", "yyyy-MM-dd");
+  const s = String(v == null ? "" : v).trim();
+  const m = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(s);
+  return m ? m[3] + "-" + m[2] + "-" + m[1] : s.slice(0, 10);
+}
+// procura outro RDO da mesma obra (pelo ID) na mesma data
+function rdoDoDia_(sh, idobra, data, uidIgnorar) {
+  const k = norm_(idobra), d = dataIso_(data), n = sh.getLastRow();
+  if (!k || !d || n < 2) return null;
+  const v = sh.getRange(2, 1, n - 1, 8).getValues();
+  for (let i = 0; i < v.length; i++) {
+    const l = v[i];
+    if (String(l[0]) !== String(uidIgnorar || "") && norm_(l[2]) === k && dataIso_(l[5]) === d)
+      return { uid: String(l[0]), rdo: String(l[6]), resp: String(l[7]) };
+  }
+  return null;
+}
+// último RDO da obra (para o encarregado copiar horário, efetivo e equipamentos)
+function ultimoRdo_(idobra, antesDe) {
+  const sh = aba_(), n = sh.getLastRow(), k = norm_(idobra);
+  if (!k || n < 2) return null;
+  const v = sh.getRange(2, 1, n - 1, COLUNAS.length).getValues();
+  let best = null, bd = "";
+  v.forEach(l => {
+    const o = {}; COLUNAS.forEach((c, i) => o[c] = l[i]);
+    const d = dataIso_(o.data);
+    if (norm_(o.idobra) !== k || !d || (antesDe && d >= antesDe)) return;
+    if (!best || d >= bd) { best = o; bd = d; }
+  });
+  if (!best) return null;
+  const hm = x => x instanceof Date ? Utilities.formatDate(x, "America/Sao_Paulo", "HH:mm") : String(x || "").slice(0, 5);
+  return { rdo: String(best.rdo), data: bd, resp: String(best.resp), hini: hm(best.hini), hfim: hm(best.hfim),
+    m_lid: best.lider || 0, m_mon: best.montador || 0, m_aux: best.auxiliar || 0, m_out: best.outros || 0, equip: String(best.equip || "") };
+}
+function msgDuplicado_(dup, idobra, data) {
+  const d = dataIso_(data).split("-").reverse().join("/");
+  return "Já existe o RDO nº " + dup.rdo + " da obra " + limpa_(idobra, 40) + " em " + d + (dup.resp ? " (feito por " + dup.resp + ")" : "") +
+    ". Só pode haver um RDO por obra em cada dia.";
+}
+
+function salvarFoto_(b) {
+  const sh = aba_();
+  const linha = linhaDoUid_(sh, limpa_(b.uid, 80));
+  if (!linha) return { ok: false, erro: "RDO não encontrado" };
+  const r = lerLinha_(sh, linha);
+  const raiz = pasta_(PASTA_RAIZ);
+  const pastaObra = pastaDaObra_(r, raiz);
+  const nome = "RDO " + r.rdo + " " + r.data + " foto " + (b.idx + 1) + ".jpg";
+  const blob = Utilities.newBlob(Utilities.base64Decode(b.b64), "image/jpeg", nome);
+  const arq = pastaObra.createFile(blob).setDescription(limpa_(b.desc, 500));
+  // lista provisória da rodada atual de envio
+  const chave = "envio_" + r.uid;
+  const cache = CacheService.getScriptCache();
+  const lista = JSON.parse(cache.get(chave) || "[]");
+  lista[b.idx] = { id: arq.getId(), desc: limpa_(b.desc, 500) };
+  cache.put(chave, JSON.stringify(lista), 21600);
+  sh.getRange(linha, COLUNAS.indexOf("pasta_fotos") + 1).setValue(pastaObra.getUrl());
+  return { ok: true, id: arq.getId() };
+}
+
+function fecharFotos_(b) {
+  // troca as fotos antigas pelas da rodada atual
+  const sh = aba_();
+  const uid = limpa_(b.uid, 80);
+  const linha = linhaDoUid_(sh, uid);
+  if (!linha) return { ok: false, erro: "RDO não encontrado" };
+  const r = lerLinha_(sh, linha);
+  const cache = CacheService.getScriptCache();
+  const novas = JSON.parse(cache.get("envio_" + uid) || "[]").filter(Boolean);
+  let antigas = [];
+  try { antigas = JSON.parse(r.fotos || "[]"); } catch (e) { }
+  const manter = new Set(novas.map(f => f.id));
+  antigas.forEach(f => { if (f && f.id && !manter.has(f.id)) { try { DriveApp.getFileById(f.id).setTrashed(true); } catch (e) { } } });
+  sh.getRange(linha, COLUNAS.indexOf("fotos") + 1).setValue(JSON.stringify(novas));
+  sh.getRange(linha, COLUNAS.indexOf("n_fotos") + 1).setValue(novas.length);
+  cache.remove("envio_" + uid);
+  return { ok: true, fotos: novas.length };
+}
+
+// PDF do RDO na mesma pasta da obra, substituindo a versão anterior
+function salvarPdf_(b) {
+  const sh = aba_();
+  const linha = linhaDoUid_(sh, limpa_(b.uid, 80));
+  if (!linha) return { ok: false, erro: "RDO não encontrado" };
+  const r = lerLinha_(sh, linha);
+  const pastaObra = pastaDaObra_(r, pasta_(PASTA_RAIZ));
+  const obra = [String(r.idobra || "").trim(), String(r.obra || "").trim()].filter(String).join(" ");
+  const nome = "RDO " + r.rdo + " - " + r.data + " - " + obra + ".pdf";
+  const arq = pastaObra.createFile(Utilities.newBlob(Utilities.base64Decode(b.b64), "application/pdf", nome));
+  if (r.pdf && r.pdf !== arq.getId()) { try { DriveApp.getFileById(r.pdf).setTrashed(true); } catch (e) { } }
+  sh.getRange(linha, COLUNAS.indexOf("pdf") + 1).setValue(arq.getId());
+  sh.getRange(linha, COLUNAS.indexOf("pasta_fotos") + 1).setValue(pastaObra.getUrl());
+  return { ok: true, id: arq.getId() };
+}
+
+/* ---------- Painel do Supervisor lê ---------- */
+function doGet(e) {
+  const p = (e && e.parameter) || {};
+  if (p.acao === "ping") return json_({ ok: true, app: "Diário de Obra ECTAS" });
+  const senhaAtual = prop_("SENHA_SUPERVISOR");
+  if (!senhaAtual) {
+    if (p.acao === "definirSenha" && String(p.nova || "").length >= 6) {
+      definirSenha_(p.nova);
+      return json_({ ok: true });
+    }
+    return json_({ ok: false, erro: "sem senha" });
+  }
+  if (p.senha !== senhaAtual) return json_({ ok: false, erro: "senha incorreta" });
+  const est = estadoSenha_();
+  if (est.vencida) return json_({ ok: false, erro: "senha vencida", senhaInfo: est });
+  if (p.acao === "listar") {
+    const sh = aba_();
+    const n = sh.getLastRow();
+    const dados = n < 2 ? [] : sh.getRange(2, 1, n - 1, COLUNAS.length).getValues().map(v => {
+      const o = {}; COLUNAS.forEach((c, i) => o[c] = v[i] instanceof Date ? v[i].toISOString() : v[i]); return o;
+    });
+    return json_({ ok: true, rdos: dados, planilha: planilha_().getUrl(), senhaInfo: est });
+  }
+  if (p.acao === "obrasTodas") return json_({ ok: true, obras: listarObras_(), usuarios: listarUsu_() });
+  if (p.acao === "config") { try { garantirGatilhoBackup_(); } catch (e) { } return json_({ ok: true, config: config_() }); }
+  if (p.acao === "foto") {
+    try {
+      const f = DriveApp.getFileById(p.id);
+      return json_({ ok: true, b64: Utilities.base64Encode(f.getBlob().getBytes()), tipo: f.getMimeType() });
+    } catch (err) { return json_({ ok: false, erro: "foto não encontrada" }); }
+  }
+  return json_({ ok: false, erro: "ação desconhecida" });
+}
+
+/* ---------- Lista fixa de obras (aba "Obras") ---------- */
+const ABA_OBRAS = "Obras";
+
+function abaObras_() {
+  const ss = planilha_();
+  let sh = ss.getSheetByName(ABA_OBRAS);
+  if (sh) {
+    if (sh.getRange(1, 5).getValue() === "") sh.getRange(1, 5).setValue("Responsáveis (logins)").setFontWeight("bold").setBackground("#002B49").setFontColor("#FFFFFF");
+    return sh;
+  }
+  sh = ss.insertSheet(ABA_OBRAS, 0);
+  sh.getRange(1, 1, 1, 5).setValues([["ID", "Obra", "Local", "Ativa", "Responsáveis (logins)"]])
+    .setFontWeight("bold").setBackground("#002B49").setFontColor("#FFFFFF");
+  sh.setFrozenRows(1);
+  sh.getRange("A:A").setNumberFormat("@");
+  sh.setColumnWidth(2, 260); sh.setColumnWidth(3, 220);
+  // primeira carga: obras que já têm RDO, com o nome e o local mais usados
+  const rdo = aba_(), n = rdo.getLastRow();
+  if (n >= 2) {
+    const v = rdo.getRange(2, 1, n - 1, COLUNAS.length).getValues();
+    const g = {};
+    v.forEach(l => {
+      const id = String(l[2]).trim(); if (!id) return;
+      const k = norm_(id), x = g[k] = g[k] || { id: id, nomes: {}, locais: {} };
+      const conta = (m, t) => { t = String(t || "").trim(); if (t) m[t] = (m[t] || 0) + 1; };
+      conta(x.nomes, l[3]); conta(x.locais, l[4]);
+    });
+    const top = m => Object.keys(m).sort((a, b) => m[b] - m[a])[0] || "";
+    const linhas = Object.values(g).map(x => [x.id, top(x.nomes), top(x.locais), "Sim"])
+      .filter(l => !/^0+$/.test(l[0]));
+    if (linhas.length) sh.getRange(2, 1, linhas.length, 4).setValues(linhas);
+  }
+  return sh;
+}
+
+function listarObras_() {
+  const sh = abaObras_(), n = sh.getLastRow();
+  if (n < 2) return [];
+  return sh.getRange(2, 1, n - 1, 5).getValues()
+    .filter(l => String(l[0]).trim() || String(l[1]).trim())
+    .map(l => ({ id: String(l[0]).trim(), obra: String(l[1]).trim(), local: String(l[2]).trim(), ativa: !/^n/i.test(String(l[3]).trim()),
+      responsaveis: String(l[4] || "").split(/[,;\s]+/).map(x => x.trim().toLowerCase()).filter(Boolean) }))
+    .sort((a, b) => a.id.localeCompare(b.id, "pt", { numeric: true }));
+}
+
+// lista para o app de campo, com o último nº de RDO de cada obra (numeração contínua entre celulares)
+// obra sem responsáveis definidos fica liberada para todos os encarregados
+function obraPermitida_(id, u) {
+  const o = listarObras_().find(x => norm_(x.id) === norm_(id));
+  if (!o) return true;
+  return !o.responsaveis.length || o.responsaveis.indexOf(u.login) >= 0;
+}
+
+function obrasParaCampo_(u) {
+  const ultimo = {};
+  const sh = aba_(), n = sh.getLastRow();
+  if (n >= 2) sh.getRange(2, 3, n - 1, 5).getValues().forEach(l => {
+    const k = norm_(l[0]), r = parseInt(l[4], 10) || 0;
+    if (k && r > (ultimo[k] || 0)) ultimo[k] = r;
+  });
+  return listarObras_().filter(o => o.ativa && (!o.responsaveis.length || o.responsaveis.indexOf(u.login) >= 0))
+    .map(o => ({ id: o.id, obra: o.obra, local: o.local, ativa: true, ultimoRdo: ultimo[norm_(o.id)] || 0 }));
+}
+
+// exclui RDOs da central: a linha vai para a aba "RDOs excluídos" (lixeira) e as fotos e o PDF
+// vão para a lixeira do Google Drive (recuperáveis por 30 dias)
+const ABA_EXCLUIDOS = "RDOs excluídos";
+function excluirRdos_(uids) {
+  const alvo = new Set((Array.isArray(uids) ? uids : [uids]).map(u => limpa_(u, 80)).filter(Boolean));
+  if (!alvo.size) return { ok: false, erro: "Escolha pelo menos um RDO." };
+  const sh = aba_(), n = sh.getLastRow();
+  if (n < 2) return { ok: false, erro: "RDO não encontrado." };
+  const v = sh.getRange(2, 1, n - 1, COLUNAS.length).getValues();
+  const linhas = [];
+  v.forEach((l, i) => { if (alvo.has(String(l[0]))) linhas.push(i); });
+  if (!linhas.length) return { ok: false, erro: "RDO não encontrado (talvez já tenha sido excluído)." };
+  const ss = planilha_();
+  let lix = ss.getSheetByName(ABA_EXCLUIDOS);
+  if (!lix) {
+    lix = ss.insertSheet(ABA_EXCLUIDOS);
+    lix.getRange(1, 1, 1, TITULOS.length + 1).setValues([TITULOS.concat(["Excluído em"])])
+      .setFontWeight("bold").setBackground("#002B49").setFontColor("#FFFFFF");
+    lix.setFrozenRows(1);
+  }
+  const agora = new Date();
+  lix.getRange(lix.getLastRow() + 1, 1, linhas.length, COLUNAS.length + 1)
+    .setValues(linhas.map(i => v[i].concat([agora])));
+  linhas.forEach(i => {
+    const o = {}; COLUNAS.forEach((c, k) => o[c] = v[i][k]);
+    let fotos = []; try { fotos = JSON.parse(o.fotos || "[]"); } catch (e) { }
+    fotos.forEach(f => { if (f && f.id) { try { DriveApp.getFileById(f.id).setTrashed(true); } catch (e) { } } });
+    if (o.pdf) { try { DriveApp.getFileById(String(o.pdf)).setTrashed(true); } catch (e) { } }
+  });
+  linhas.slice().reverse().forEach(i => sh.deleteRow(i + 2));   // de baixo para cima
+  return { ok: true, excluidos: linhas.length };
+}
+
+// exclui uma ou várias obras do cadastro; os RDOs, fotos e PDFs delas continuam guardados
+function excluirObras_(lista) {
+  const alvo = (Array.isArray(lista) ? lista : [lista]).map(norm_).filter(Boolean);
+  if (!alvo.length) return { ok: false, erro: "Escolha pelo menos uma obra." };
+  const sh = abaObras_(), n = sh.getLastRow();
+  const ids = n >= 2 ? sh.getRange(2, 1, n - 1, 1).getValues().map(l => norm_(l[0])) : [];
+  const linhas = [];
+  ids.forEach((k, i) => { if (alvo.indexOf(k) >= 0) linhas.push(i + 2); });
+  if (!linhas.length) return { ok: false, erro: "Obra não encontrada." };
+  linhas.reverse().forEach(l => sh.deleteRow(l));   // de baixo para cima, para não deslocar as linhas
+  return { ok: true, excluidas: linhas.length, obras: listarObras_(), usuarios: listarUsu_() };
+}
+
+function salvarObra_(o) {
+  const id = limpa_(o.id, 40).trim(), obra = limpa_(o.obra, 120).trim(), local = limpa_(o.local, 120).trim();
+  if (!id || !obra) return { ok: false, erro: "Informe o ID e o nome da obra." };
+  const sh = abaObras_(), n = sh.getLastRow();
+  const ids = n >= 2 ? sh.getRange(2, 1, n - 1, 1).getValues().map(l => norm_(l[0])) : [];
+  const i = ids.indexOf(norm_(o.idOriginal || id));
+  const dup = ids.indexOf(norm_(id));
+  if (dup >= 0 && dup !== i) return { ok: false, erro: "Já existe uma obra com o ID " + id + "." };
+  const resp = (Array.isArray(o.responsaveis) ? o.responsaveis : []).map(x => String(x).trim().toLowerCase()).filter(Boolean).join(", ");
+  const linha = [[id, obra, local, o.ativa === false ? "Não" : "Sim", resp]];
+  if (i >= 0) sh.getRange(i + 2, 1, 1, 5).setValues(linha);
+  else sh.appendRow(linha[0]);
+  return { ok: true, obras: listarObras_(), usuarios: listarUsu_() };
+}
+
+/* ---------- Encarregados: usuário e senha do app de campo ---------- */
+const ABA_USU = "Encarregados";
+const DIAS_SESSAO = 30;
+
+function abaUsu_() {
+  const ss = planilha_();
+  let sh = ss.getSheetByName(ABA_USU);
+  if (sh) return sh;
+  sh = ss.insertSheet(ABA_USU, 1);
+  sh.getRange(1, 1, 1, 6).setValues([["Usuário (login)", "Nome", "Ativo", "Senha (protegida)", "Sal", "Versão"]])
+    .setFontWeight("bold").setBackground("#002B49").setFontColor("#FFFFFF");
+  sh.setFrozenRows(1);
+  sh.getRange("A:A").setNumberFormat("@");
+  sh.setColumnWidth(2, 240);
+  sh.hideColumns(4, 3);
+  return sh;
+}
+
+function hash_(senha, sal) {
+  return Utilities.base64Encode(Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, sal + "|" + senha, Utilities.Charset.UTF_8));
+}
+
+function lerUsuarios_() {
+  const sh = abaUsu_(), n = sh.getLastRow();
+  if (n < 2) return [];
+  return sh.getRange(2, 1, n - 1, 6).getValues().map((l, i) => ({
+    linha: i + 2, login: String(l[0]).trim().toLowerCase(), nome: String(l[1]).trim(),
+    ativo: !/^n/i.test(String(l[2]).trim()), hash: String(l[3]), sal: String(l[4]), versao: Number(l[5]) || 1
+  })).filter(x => x.login);
+}
+
+function listarUsu_() {
+  return lerUsuarios_().map(u => ({ login: u.login, nome: u.nome, ativo: u.ativo, temSenha: !!u.hash }))
+    .sort((a, b) => a.nome.localeCompare(b.nome, "pt"));
+}
+
+function salvarUsu_(d) {
+  const login = String(d.login || "").trim().toLowerCase();
+  const nome = limpa_(d.nome, 80).trim();
+  if (!/^[a-z0-9._-]{3,30}$/.test(login)) return { ok: false, erro: "Usuário deve ter de 3 a 30 letras minúsculas, números, ponto, hífen ou sublinhado (sem espaço)." };
+  if (!nome) return { ok: false, erro: "Informe o nome do encarregado." };
+  const sh = abaUsu_(), todos = lerUsuarios_();
+  const orig = String(d.loginOriginal || "").trim().toLowerCase();
+  const atual = todos.find(x => x.login === (orig || login));
+  if (todos.some(x => x.login === login && x !== atual)) return { ok: false, erro: "Já existe o usuário " + login + "." };
+  const senha = String(d.senha || "");
+  if (!atual && senha.length < 6) return { ok: false, erro: "Defina uma senha com pelo menos 6 caracteres." };
+  if (senha && senha.length < 6) return { ok: false, erro: "A senha precisa ter pelo menos 6 caracteres." };
+  let hash = atual ? atual.hash : "", sal = atual ? atual.sal : "", versao = atual ? atual.versao : 1;
+  if (senha) { sal = Utilities.getUuid(); hash = hash_(senha, sal); versao++; }   // nova senha encerra as sessões abertas
+  const ativo = d.ativo !== false;
+  if (atual && atual.ativo && !ativo) versao++;                                      // desativar também encerra
+  const linha = [[login, nome, ativo ? "Sim" : "Não", hash, sal, versao]];
+  if (atual) sh.getRange(atual.linha, 1, 1, 6).setValues(linha); else sh.appendRow(linha[0]);
+  // se o login mudou, atualiza os responsáveis das obras
+  if (atual && atual.login !== login) {
+    const so = abaObras_(), n = so.getLastRow();
+    if (n >= 2) {
+      const r = so.getRange(2, 5, n - 1, 1).getValues().map(l => [String(l[0]).split(/[,;\s]+/).map(x => x.trim().toLowerCase() === atual.login ? login : x.trim()).filter(Boolean).join(", ")]);
+      so.getRange(2, 5, n - 1, 1).setValues(r);
+    }
+  }
+  return { ok: true, usuarios: listarUsu_(), obras: listarObras_() };
+}
+
+function login_(b) {
+  const login = String(b.usuario || "").trim().toLowerCase();
+  const cache = CacheService.getScriptCache(), k = "falhas_" + login;
+  const falhas = Number(cache.get(k) || 0);
+  if (falhas >= 8) return { ok: false, erro: "Muitas tentativas. Aguarde 15 minutos ou peça ao supervisor para redefinir a senha." };
+  const u = lerUsuarios_().find(x => x.login === login);
+  if (!u || !u.ativo || !u.hash || hash_(String(b.senha || ""), u.sal) !== u.hash) {
+    cache.put(k, String(falhas + 1), 900);
+    return { ok: false, erro: u && !u.ativo ? "Usuário desativado. Fale com o supervisor." : "Usuário ou senha incorretos." };
+  }
+  cache.remove(k);
+  limparSessoes_();
+  const token = Utilities.getUuid() + Utilities.getUuid().slice(0, 8);
+  PropertiesService.getScriptProperties().setProperty("tk_" + token, JSON.stringify({ l: u.login, v: u.versao, exp: Date.now() + DIAS_SESSAO * 864e5 }));
+  return { ok: true, token: token, usuario: { login: u.login, nome: u.nome } };
+}
+
+function sessao_(token) {
+  if (!token || !/^[0-9a-f-]{20,}$/i.test(String(token))) return null;
+  const pr = PropertiesService.getScriptProperties();
+  const raw = pr.getProperty("tk_" + token);
+  if (!raw) return null;
+  const t = JSON.parse(raw);
+  if (t.exp < Date.now()) { pr.deleteProperty("tk_" + token); return null; }
+  const u = lerUsuarios_().find(x => x.login === t.l);
+  if (!u || !u.ativo || u.versao !== t.v) { pr.deleteProperty("tk_" + token); return null; }
+  return u;
+}
+
+function limparSessoes_() {
+  const pr = PropertiesService.getScriptProperties(), todas = pr.getProperties(), agora = Date.now();
+  Object.keys(todas).forEach(k => { if (k.indexOf("tk_") === 0) { try { if (JSON.parse(todas[k]).exp < agora) pr.deleteProperty(k); } catch (e) { pr.deleteProperty(k); } } });
+}
+
+/* ---------- Recuperar a senha por código enviado por e-mail ---------- */
+function mascara_(e) {
+  const [u, d] = String(e).split("@");
+  return (u.length <= 2 ? u[0] + "*" : u.slice(0, 2) + "*".repeat(Math.max(2, u.length - 2))) + "@" + d;
+}
+
+function recuperar_(b) {
+  const cache = CacheService.getScriptCache();
+  const para = prop_("EMAIL_RECUP") || EMAIL_DONO;
+  if (b.acao === "recuperarPedir") {
+    if (cache.get("recup_ultimo")) return { ok: true, para: mascara_(para), jaEnviado: true };
+    const codigo = String(Math.floor(100000 + Math.random() * 900000));
+    cache.put("recup", JSON.stringify({ codigo: codigo, tentativas: 0 }), 900);   // 15 minutos
+    cache.put("recup_ultimo", "1", 120);                                         // novo pedido só após 2 min
+    MailApp.sendEmail({
+      to: para, name: "Diário de Obra ECTAS",
+      subject: "Código para criar nova senha do Painel do Supervisor: " + codigo,
+      htmlBody: '<div style="font-family:Arial,sans-serif;color:#1D1D1B"><p>Alguém pediu para criar uma nova senha do <b>Painel do Supervisor</b> do Diário de Obra ECTAS.</p>' +
+        '<p style="font-size:28px;font-weight:bold;letter-spacing:6px;color:#002B49">' + codigo + '</p>' +
+        '<p>O código vale por <b>15 minutos</b>. Digite-o no painel junto com a nova senha.</p>' +
+        '<p style="font-size:12px;color:#606060">Se não foi você, ignore este e-mail: a senha atual continua valendo.</p></div>'
+    });
+    return { ok: true, para: mascara_(para) };
+  }
+  // recuperarConfirmar
+  const r = JSON.parse(cache.get("recup") || "null");
+  if (!r) return { ok: false, erro: "O código expirou. Peça um novo." };
+  r.tentativas++;
+  if (String(b.codigo || "").trim() !== r.codigo) {
+    if (r.tentativas >= 5) { cache.remove("recup"); return { ok: false, erro: "Código incorreto 5 vezes. Peça um novo código." }; }
+    cache.put("recup", JSON.stringify(r), 900);
+    return { ok: false, erro: "Código incorreto. Restam " + (5 - r.tentativas) + " tentativas." };
+  }
+  const nova = String(b.nova || "");
+  if (nova.length < 6) return { ok: false, erro: "A nova senha precisa ter pelo menos 6 caracteres." };
+  if (nova === prop_("SENHA_SUPERVISOR")) return { ok: false, erro: "A nova senha precisa ser diferente da anterior." };
+  definirSenha_(nova);
+  cache.remove("recup");
+  return { ok: true };
+}
+
+/* ---------- Configurações e e-mail diário ---------- */
+/* ---------- cópia de segurança semanal da planilha ---------- */
+const PASTA_BACKUP = "Diário de Obra ECTAS - Backups";
+const BACKUPS_MANTER = 12;   // guarda as últimas 12 cópias (cerca de 3 meses)
+function backupSemanal() {
+  const ss = planilha_();
+  const pasta = pasta_(PASTA_BACKUP);
+  const nome = "Backup " + NOME_PLANILHA + " " + Utilities.formatDate(new Date(), "America/Sao_Paulo", "yyyy-MM-dd HH'h'mm");
+  DriveApp.getFileById(ss.getId()).makeCopy(nome, pasta);
+  // apaga as mais antigas (vão para a lixeira do Drive, recuperáveis por 30 dias)
+  const arqs = [];
+  const it = pasta.getFiles();
+  while (it.hasNext()) { const f = it.next(); if (f.getName().indexOf("Backup ") === 0) arqs.push(f); }
+  arqs.sort((a, b) => b.getDateCreated() - a.getDateCreated());
+  arqs.slice(BACKUPS_MANTER).forEach(f => f.setTrashed(true));
+  PropertiesService.getScriptProperties().setProperty("ULTIMO_BACKUP", new Date().toISOString());
+  return { ok: true, backup: infoBackup_() };
+}
+function garantirGatilhoBackup_() {
+  if (ScriptApp.getProjectTriggers().some(t => t.getHandlerFunction() === "backupSemanal")) return;
+  ScriptApp.newTrigger("backupSemanal").timeBased().onWeekDay(ScriptApp.WeekDay.MONDAY).atHour(3).inTimezone("America/Sao_Paulo").create();
+}
+function infoBackup_() {
+  const pr = PropertiesService.getScriptProperties();
+  let url = pr.getProperty("PASTA_BACKUP_URL");
+  if (!url) { try { url = pasta_(PASTA_BACKUP).getUrl(); pr.setProperty("PASTA_BACKUP_URL", url); } catch (e) { url = ""; } }
+  return { ultimo: pr.getProperty("ULTIMO_BACKUP") || "", pasta: url,
+    ativo: ScriptApp.getProjectTriggers().some(t => t.getHandlerFunction() === "backupSemanal") };
+}
+
+function config_() {
+  const pr = PropertiesService.getScriptProperties();
+  return {
+    emails: pr.getProperty("EMAILS_AVISO") || "",
+    hora: parseInt(pr.getProperty("HORA_AVISO") || "7", 10),
+    ativo: ScriptApp.getProjectTriggers().some(t => t.getHandlerFunction() === "emailDiario"),
+    recupEmail: pr.getProperty("EMAIL_RECUP") || "",
+    recupPadrao: EMAIL_DONO,
+    backup: infoBackup_()
+  };
+}
+
+function salvarConfig_(c) {
+  const emails = String(c.emails || "").split(/[,;\s]+/).map(e => e.trim()).filter(e => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e));
+  const hora = Math.min(23, Math.max(0, parseInt(c.hora, 10) || 7));
+  const pr = PropertiesService.getScriptProperties();
+  pr.setProperty("EMAILS_AVISO", emails.join(", "));
+  pr.setProperty("HORA_AVISO", String(hora));
+  ScriptApp.getProjectTriggers().forEach(t => { if (t.getHandlerFunction() === "emailDiario") ScriptApp.deleteTrigger(t); });
+  if (emails.length) ScriptApp.newTrigger("emailDiario").timeBased().atHour(hora).nearMinute(0).everyDays(1).inTimezone("America/Sao_Paulo").create();
+  return { ok: true, config: config_() };
+}
+
+function acaoSupervisor_(b) {
+  const senhaAtual = prop_("SENHA_SUPERVISOR");
+  if (!senhaAtual || b.senha !== senhaAtual) return { ok: false, erro: "senha incorreta" };
+  const lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    if (b.acao !== "senhaTrocar" && estadoSenha_().vencida) return { ok: false, erro: "senha vencida" };
+    if (b.acao === "obraSalvar") return salvarObra_(b.obra || {});
+    if (b.acao === "obraExcluir") return excluirObras_(b.ids || b.id);
+    if (b.acao === "rdoExcluir") return excluirRdos_(b.uids || b.uid);
+    if (b.acao === "usuarioSalvar") return salvarUsu_(b.usuario || {});
+    if (b.acao === "configSalvar") return salvarConfig_(b.config || {});
+    if (b.acao === "emailTeste") return emailDiario(true);
+    if (b.acao === "backupAgora") { garantirGatilhoBackup_(); return backupSemanal(); }
+    if (b.acao === "recupEmailSalvar") {
+      const e = String(b.email || "").trim();
+      if (e && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e)) return { ok: false, erro: "E-mail inválido." };
+      PropertiesService.getScriptProperties().setProperty("EMAIL_RECUP", e);
+      return { ok: true, config: config_() };
+    }
+    if (b.acao === "senhaTrocar") {
+      const nova = String(b.nova || "");
+      if (nova.length < 6) return { ok: false, erro: "A nova senha precisa ter pelo menos 6 caracteres." };
+      if (nova === senhaAtual) return { ok: false, erro: "A nova senha precisa ser diferente da atual." };
+      definirSenha_(nova);
+      return { ok: true, senhaInfo: estadoSenha_() };
+    }
+    return { ok: false, erro: "ação desconhecida" };
+  } finally { lock.releaseLock(); }
+}
+
+function dataTexto_(v, tz) {
+  if (v instanceof Date) return Utilities.formatDate(v, tz, "yyyy-MM-dd");
+  return String(v || "").slice(0, 10);
+}
+
+// Todo dia: obras ativas que não mandaram o RDO de ontem (segunda a sábado)
+function emailDiario(teste) {
+  const tz = "America/Sao_Paulo";
+  const emails = prop_("EMAILS_AVISO");
+  if (!emails) return { ok: false, erro: "Cadastre pelo menos um e-mail para o aviso." };
+  const ontem = new Date(Date.now() - 24 * 3600 * 1000);
+  const diaSemana = Number(Utilities.formatDate(ontem, tz, "u")); // 1 = segunda ... 7 = domingo
+  if (diaSemana === 7 && teste !== true) return { ok: true, pulado: "domingo" };
+  const d = Utilities.formatDate(ontem, tz, "yyyy-MM-dd");
+  const dBr = Utilities.formatDate(ontem, tz, "dd/MM/yyyy");
+  const nomes = ["", "segunda", "terça", "quarta", "quinta", "sexta", "sábado", "domingo"];
+  const obras = listarObras_().filter(o => o.ativa);
+  const sh = aba_(), n = sh.getLastRow();
+  const rdos = n < 2 ? [] : sh.getRange(2, 1, n - 1, COLUNAS.length).getValues()
+    .map(v => { const o = {}; COLUNAS.forEach((c, i) => o[c] = v[i]); return o; })
+    .filter(r => dataTexto_(r.data, tz) === d);
+  const porId = {};
+  rdos.forEach(r => { const k = norm_(r.idobra); (porId[k] = porId[k] || []).push(r); });
+  const faltam = obras.filter(o => !porId[norm_(o.id)]);
+  const enviaram = obras.filter(o => porId[norm_(o.id)]);
+  const esc = t => String(t == null ? "" : t).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const nomeObra = o => esc(o.id + " - " + o.obra + (o.local ? " / " + o.local : ""));
+  const painel = "https://instalacao-ectas.github.io/supervisor.html";
+  let html = '<div style="font-family:Arial,sans-serif;color:#1D1D1B;max-width:640px">' +
+    '<div style="background:#002B49;color:#fff;padding:14px 18px;font-size:18px;font-weight:bold">Diário de Obra ECTAS</div>' +
+    '<div style="height:4px;background:linear-gradient(90deg,#66D3CD 33%,#0073A8 33% 66%,#002B49 66%)"></div>' +
+    '<p style="font-size:15px">RDOs de <b>' + nomes[diaSemana] + ', ' + dBr + '</b>' + (teste === true ? " (e-mail de teste)" : "") + '</p>';
+  if (faltam.length) {
+    html += '<h3 style="color:#B54708;margin:16px 0 6px">⚠ ' + faltam.length + ' obra' + (faltam.length > 1 ? "s" : "") + ' sem RDO</h3><ul>' +
+      faltam.map(o => '<li>' + nomeObra(o) + '</li>').join("") + '</ul>';
+  } else {
+    html += '<p style="color:#1F7A4D;font-weight:bold">✓ Todas as ' + obras.length + ' obras ativas enviaram o RDO.</p>';
+  }
+  if (enviaram.length) {
+    html += '<h3 style="color:#0073A8;margin:16px 0 6px">Obras com RDO</h3><table style="border-collapse:collapse;font-size:14px">' +
+      '<tr><th align="left" style="padding:4px 10px 4px 0">Obra</th><th align="right" style="padding:4px 10px">Efetivo</th><th align="left" style="padding:4px 10px">Ocorrência</th></tr>' +
+      enviaram.map(o => {
+        const rs = porId[norm_(o.id)];
+        const ef = rs.reduce((s, r) => s + (Number(r.total) || 0), 0);
+        const oc = rs.some(r => String(r.ocor || "").trim());
+        return '<tr><td style="padding:4px 10px 4px 0">' + nomeObra(o) + '</td><td align="right" style="padding:4px 10px">' + ef + '</td><td style="padding:4px 10px">' + (oc ? '<b style="color:#B42318">Sim</b>' : "-") + '</td></tr>';
+      }).join("") + '</table>';
+  }
+  const est = estadoSenha_();
+  if (est.diasRestantes <= DIAS_AVISO_SENHA) {
+    html += '<p style="background:#FEF3E2;border:1px solid #B54708;padding:10px 12px;color:#7A2E0E">🔒 ' +
+      (est.vencida ? 'A senha do Painel do Supervisor <b>venceu</b>. Entre no painel e crie uma nova senha para voltar a ver os dados.'
+        : 'A senha do Painel do Supervisor vence em <b>' + est.diasRestantes + ' dia' + (est.diasRestantes > 1 ? 's' : '') + '</b> (troca obrigatória a cada 3 meses). Troque pelo painel, na seção "Senha do painel".') + '</p>';
+  }
+  html += '<p style="margin-top:18px"><a href="' + painel + '" style="color:#0073A8">Abrir o Painel do Supervisor</a></p>' +
+    '<p style="font-size:12px;color:#606060">Aviso automático enviado todo dia, de segunda a sábado, sobre o dia anterior. Para mudar os destinatários ou o horário, use o painel.</p></div>';
+  const assunto = (teste === true ? "[Teste] " : "") + "RDO " + dBr + ": " + (faltam.length ? faltam.length + " obra" + (faltam.length > 1 ? "s" : "") + " sem RDO" : "todas as obras enviaram");
+  MailApp.sendEmail({ to: emails, subject: assunto, htmlBody: html, name: "Diário de Obra ECTAS" });
+  return { ok: true, enviado: emails, faltam: faltam.length };
+}
+
+/* Rode uma vez pelo editor para criar a aba e autorizar o acesso ao Drive. */
+function configurar() {
+  aba_();
+  abaObras_();
+  abaUsu_();
+  pasta_(PASTA_RAIZ);
+  Logger.log("Cota de e-mails restante hoje: " + MailApp.getRemainingDailyQuota());
+  Logger.log("Gatilhos: " + ScriptApp.getProjectTriggers().length);
+  Logger.log("Planilha: " + planilha_().getUrl());
+}
