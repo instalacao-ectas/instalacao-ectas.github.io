@@ -34,6 +34,7 @@ async function acao(acao,extra,okMsg){
 }
 
 /* ---------- entrar ---------- */
+function limparSenha(){try{sessionStorage.removeItem("fer-sup-senha");sessionStorage.removeItem("sup-senha");}catch(e){}}
 function telaLogin(qual){["f-login","f-primeira","f-vencida","f-recup"].forEach(id=>$(id).hidden=id!==qual);}
 function msg(id,t,err){const m=$(id);m.textContent=t;m.className="msg"+(err?" err":"");}
 async function entrar(){
@@ -41,11 +42,11 @@ async function entrar(){
   try{
     const r=await post({painel:true,senha,acao:"listar"});
     if(!r.ok){
-      if(r.erro==="sem senha"){telaLogin("f-primeira");msg("msg-login","");return;}
-      if(r.erro==="senha vencida"){telaLogin("f-vencida");return;}
-      senha="";try{sessionStorage.removeItem("fer-sup-senha");}catch(e){}msg("msg-login",r.erro==="senha incorreta"?"Senha incorreta.":(r.erro||"Não consegui entrar."),true);return;
+      senha="";limparSenha();
+      if(r.erro==="senha vencida"){msg("msg-login","A senha do painel venceu. Troque no Painel do Diário de Obra e entre de novo.",true);return;}
+      msg("msg-login",r.erro==="senha incorreta"?"Senha incorreta. Use a mesma senha do Painel do Diário de Obra.":(r.erro||"Não consegui entrar."),true);return;
     }
-    try{sessionStorage.setItem("fer-sup-senha",senha);}catch(e){}
+    try{sessionStorage.setItem("fer-sup-senha",senha);sessionStorage.setItem("sup-senha",senha);}catch(e){}
     D=r;$("v-login").hidden=true;$("nav").hidden=false;$("main").hidden=false;$("b-sair").hidden=false;$("b-atualizar").hidden=false;msg("msg-login","");render();
   }catch(e){msg("msg-login",e.message||"Sem conexão com a central.",true);}
 }
@@ -56,15 +57,16 @@ $("f-primeira").addEventListener("submit",async e=>{e.preventDefault();const a=$
 $("f-vencida").addEventListener("submit",async e=>{e.preventDefault();const a=$("v-nova").value,b=$("v-nova2").value;
   if(a.length<6)return msg("msg-vencida","A senha precisa ter pelo menos 6 caracteres.",true);if(a!==b)return msg("msg-vencida","As senhas não são iguais.",true);
   try{const r=await post({painel:true,senha,acao:"senhaTrocar",nova:a});if(!r.ok)return msg("msg-vencida",r.erro==="senha incorreta"?"Entre de novo com a senha antiga.":r.erro,true);senha=a;telaLogin("f-login");entrar();}catch(err){msg("msg-vencida",err.message,true);}});
-$("b-esqueci").onclick=async()=>{msg("msg-login","Enviando o código…");
+$("b-esqueci").onclick=()=>{location.href="../supervisor.html";};
+const esqueciAntigo=async()=>{msg("msg-login","Enviando o código…");
   try{const r=await post({acao:"recuperarPedir"});if(!r.ok)return msg("msg-login",r.erro,true);telaLogin("f-recup");$("r-info").textContent=(r.jaEnviado?"Já enviamos um código há pouco para ":"Enviamos um código de 6 dígitos para ")+r.para+". Ele vale 15 minutos.";msg("msg-login","");}
   catch(e){msg("msg-login",e.message||"Sem conexão.",true);}};
 $("f-recup").addEventListener("submit",async e=>{e.preventDefault();
   try{const r=await post({acao:"recuperarConfirmar",codigo:$("r-codigo").value,nova:$("r-nova").value});if(!r.ok)return msg("msg-recup",r.erro,true);
     senha=$("r-nova").value;telaLogin("f-login");entrar();}catch(err){msg("msg-recup",err.message,true);}});
 $("b-voltar").onclick=()=>telaLogin("f-login");
-function sair(qual){senha="";D=null;try{sessionStorage.removeItem("fer-sup-senha");}catch(e){}
-  $("v-login").hidden=false;$("nav").hidden=true;$("main").hidden=true;$("b-sair").hidden=true;$("b-atualizar").hidden=true;$("senha").value="";telaLogin(qual==="vencida"?"f-vencida":"f-login");}
+function sair(qual){senha="";D=null;limparSenha();
+  $("v-login").hidden=false;$("nav").hidden=true;$("main").hidden=true;$("b-sair").hidden=true;$("b-atualizar").hidden=true;$("senha").value="";telaLogin("f-login");if(qual==="vencida")msg("msg-login","A senha do painel venceu. Troque no Painel do Diário de Obra e entre de novo.",true);}
 $("b-sair").onclick=()=>sair("");
 async function carregar(){try{const r=await chamar("listar");if(r.ok){D=r;render();}}catch(e){toast(e.message||"Sem conexão.");}}
 $("b-atualizar").onclick=async()=>{$("b-atualizar").textContent="Atualizando…";await carregar();$("b-atualizar").textContent="✓ Atualizado";setTimeout(()=>$("b-atualizar").textContent="Atualizar",2500);};
@@ -99,7 +101,7 @@ function render(){
   if(!D)return;
   const pendAp=D.conferencias.filter(c=>c.status==="pendente").length,openOc=D.ocorrencias.filter(o=>o.status!=="resolvida").length;
   $("tabs").innerHTML=TABS.map(([id,l])=>{const n=id==="aprov"?pendAp:id==="ocs"?openOc:0;return `<button role="tab" data-tab="${id}" aria-selected="${S.tab===id}">${l}${n?`<span class="count">${n}</span>`:""}</button>`;}).join("");
-  const si=D.senhaInfo,aviso=si&&si.diasRestantes<=si.avisoDias?`<div class="banner">A senha do painel vence em ${si.diasRestantes} dia(s). Troque em Configurações.</div>`:"";
+  const si=D.senhaInfo,aviso=si&&si.diasRestantes<=si.avisoDias?`<div class="banner">A senha do painel vence em ${si.diasRestantes} dia(s). Troque no Painel do Diário de Obra.</div>`:"";
   $("main").innerHTML=aviso+({painel:vPainel,aprov:vAprov,ocs:vOcs,matriz:vMatriz,pecas:vPecas,cadastro:vCadastro,config:vConfig})[S.tab]();
   (after[S.tab]||(()=>{}))();
 }
@@ -301,10 +303,10 @@ after.pecas=()=>{
 function vCadastro(){
   const ts=D.tecnicos;
   const tools=D.ferramentas.slice().sort((a,b)=>(a.grupo>b.grupo?1:a.grupo<b.grupo?-1:(a.item||999)-(b.item||999)));
-  return `<div class="stack"><div><h2>Cadastro</h2><p class="lead">Técnicos (usuário e senha do app), kits e a lista padrão de ferramentas.</p></div>
-  <div class="card stack"><div class="row"><h3>Técnicos (usuários do app)</h3><span class="spacer"></span><button type="button" class="btn small" id="addTec">Novo técnico</button></div>
-   <p class="mini" style="margin:0">O técnico entra no app com usuário e senha. Trocar a senha ou desativar encerra o acesso dele na hora.</p>
-   ${ts.length?`<div class="tablebox"><table><thead><tr><th>Usuário</th><th>Nome</th><th>Situação</th><th></th></tr></thead><tbody id="tecRows">${ts.map(t=>`<tr data-login="${esc(t.login)}"><td><code class="k">${esc(t.login)}</code></td><td>${esc(t.nome)}</td><td>${t.ativo?`<span class="chip c-ok">Ativo</span>`:`<span class="chip c-mute">Desativado</span>`}</td><td><button type="button" class="btn small" data-edtec>Editar / senha</button></td></tr>`).join("")}</tbody></table></div>`:`<div class="empty">Nenhum técnico cadastrado. Cadastre o primeiro para ele poder entrar no app.</div>`}</div>
+  return `<div class="stack"><div><h2>Cadastro</h2><p class="lead">Técnicos, kits e a lista padrão de ferramentas.</p></div>
+  <div class="card stack"><div class="row"><h3>Técnicos (usuários do app)</h3><span class="spacer"></span><a class="btn small" href="../supervisor.html">Cadastrar no Diário de Obra</a></div>
+   <p class="mini" style="margin:0">Os técnicos entram com o mesmo usuário e senha do Diário de Obra. Para cadastrar, trocar senha ou desativar, use o Painel do Diário de Obra: vale para os dois aplicativos.</p>
+   ${ts.length?`<div class="tablebox"><table><thead><tr><th>Usuário</th><th>Nome</th><th>Situação</th><th></th></tr></thead><tbody id="tecRows">${ts.map(t=>`<tr data-login="${esc(t.login)}"><td><code class="k">${esc(t.login)}</code></td><td>${esc(t.nome)}</td><td>${t.ativo?`<span class="chip c-ok">Ativo</span>`:`<span class="chip c-mute">Desativado</span>`}</td><td></td></tr>`).join("")}</tbody></table></div>`:`<div class="empty">Nenhum técnico cadastrado no Diário de Obra.</div>`}</div>
   <div class="card stack"><div class="row"><h3>Kits</h3><span class="spacer"></span><button type="button" class="btn small" id="addKit">Novo kit</button></div>
    <div class="tablebox"><table><thead><tr><th>Kit</th><th>Responsável</th><th>Local / equipe</th><th>Técnicos liberados</th><th>Situação</th><th></th></tr></thead><tbody id="kitRows">
    ${D.kits.map(k=>`<tr data-k="${k.id}"><td><b>${esc(k.nome)}</b></td><td>${esc(k.responsavel||"—")}</td><td>${esc(k.local||"—")}</td><td class="mini">${k.tecnicos.length?esc(k.tecnicos.map(l=>(ts.find(t=>t.login===l)||{}).nome||l).join(", ")):"Todos"}</td><td>${k.ativo?`<span class="chip c-ok">Ativo</span>`:`<span class="chip c-mute">Inativo</span>`}</td><td><button type="button" class="btn small" data-edkit>Editar</button></td></tr>`).join("")}
@@ -338,7 +340,7 @@ function formKit(k){
    <div class="fields"><label class="field">Nome do kit<input id="kNome" value="${esc(k?k.nome:"KIT "+(D.kits.length+1))}"></label><label class="field">Ordem<input id="kOrdem" type="number" value="${k?k.ordem:D.kits.length+1}"></label></div>
    <div class="fields"><label class="field">Responsável<input id="kResp" value="${esc(k?k.responsavel:"")}" placeholder="Nome do técnico"></label><label class="field">Local / equipe<input id="kLocal" value="${esc(k?k.local:"")}"></label></div>
    <div class="field"><span class="label">Técnicos que podem conferir (nenhum marcado = todos)</span>
-    ${D.tecnicos.length?D.tecnicos.map(t=>`<label class="check"><input type="checkbox" data-tec="${esc(t.login)}" ${k&&k.tecnicos.includes(t.login)?"checked":""}> ${esc(t.nome)} (${esc(t.login)})</label>`).join(""):`<span class="mini">Cadastre os técnicos primeiro.</span>`}</div>
+    ${D.tecnicos.filter(t=>t.ativo||(k&&k.tecnicos.includes(t.login))).length?D.tecnicos.filter(t=>t.ativo||(k&&k.tecnicos.includes(t.login))).map(t=>`<label class="check"><input type="checkbox" data-tec="${esc(t.login)}" ${k&&k.tecnicos.includes(t.login)?"checked":""}> ${esc(t.nome)} (${esc(t.login)})</label>`).join(""):`<span class="mini">Cadastre os técnicos no Painel do Diário de Obra.</span>`}</div>
    <label class="check"><input type="checkbox" id="kAtivo" ${!k||k.ativo?"checked":""}> Ativo</label>
    <div class="msg" id="kMsg"></div>
    <div class="row"><button type="button" class="btn" data-fechar>Cancelar</button><span class="spacer"></span><button type="submit" class="btn primary">Salvar</button></div></form>`);
@@ -348,8 +350,7 @@ function formKit(k){
     if(!r.ok){$("kMsg").textContent=r.erro;$("kMsg").className="msg err";return;}fecharModal();toast("Kit salvo.");carregar();});
 }
 after.cadastro=()=>{
-  $("addTec").onclick=()=>formTec(null);$("addKit").onclick=()=>formKit(null);
-  const tr=$("tecRows");if(tr)tr.addEventListener("click",e=>{const b=e.target.closest("[data-edtec]");if(b)formTec(D.tecnicos.find(t=>t.login===b.closest("tr").dataset.login));});
+  $("addKit").onclick=()=>formKit(null);
   $("kitRows").addEventListener("click",e=>{const b=e.target.closest("[data-edkit]");if(b)formKit(kitById(b.closest("tr").dataset.k));});
   $("addTool").onclick=()=>{const next=Math.max(0,...perm().map(t=>t.item||0))+1;acao("ferramentaSalvar",{ferramenta:{item:next,desc:"Nova ferramenta",qtd:1,grupo:"permanente"}},"Ferramenta adicionada no fim da lista. Edite a descrição e salve.");};
   $("toolRows").addEventListener("click",async e=>{const row=e.target.closest("tr[data-t]");if(!row)return;
@@ -365,11 +366,8 @@ function vConfig(){
   <div class="card stack"><h3>Aviso diário por e-mail</h3><p class="mini" style="margin:0">De segunda a sábado: kits com conferência atrasada, pendências da última conferência, conferências a aprovar e ocorrências abertas.</p>
    <div class="fields"><label class="field">E-mails (separados por vírgula)<input id="cEmails" value="${esc(c.emails||"")}"></label><label class="field">Horário<select id="cHora">${Array.from({length:24},(_,h)=>`<option value="${h}" ${c.hora===h?"selected":""}>${String(h).padStart(2,"0")}:00</option>`).join("")}</select></label></div>
    <div class="row"><span class="chip ${c.ativo?"c-ok":"c-mute"}">${c.ativo?"Ativo":"Desligado"}</span><span class="spacer"></span><button type="button" class="btn" id="cTeste">Enviar teste agora</button><button type="button" class="btn primary" id="cSalvar">Salvar aviso</button></div></div>
-  <div class="card stack"><h3>Senha do painel</h3><p class="mini" style="margin:0">Trocada em ${fmtDia(si.trocadaEm)} · vence em ${fmtDia(si.venceEm)} (${si.diasRestantes} dia(s)). A senha vence a cada ${si.validadeDias||90} dias.</p>
-   <div class="fields"><label class="field">Nova senha<input id="sNova" type="password" autocomplete="new-password"></label><label class="field">Repita<input id="sNova2" type="password" autocomplete="new-password"></label></div>
-   <div class="row"><span class="spacer"></span><button type="button" class="btn primary" id="sTrocar">Trocar senha</button></div>
-   <label class="field">E-mail de recuperação (recebe o código de "Esqueci minha senha")<input id="rEmail" value="${esc(c.recupEmail||"")}" placeholder="${esc(c.recupPadrao||"")}"></label>
-   <div class="row"><span class="spacer"></span><button type="button" class="btn" id="rSalvar">Salvar e-mail</button></div></div>
+  <div class="card stack"><h3>Senha do painel</h3><p class="mini" style="margin:0">O painel usa a mesma senha do Painel do Diário de Obra. Para trocar a senha ou o e-mail de recuperação, use as Configurações do Diário de Obra: vale para os dois.</p>
+   <div class="row"><span class="spacer"></span><a class="btn" href="../supervisor.html">Abrir o Painel do Diário de Obra</a></div></div>
   <div class="card stack"><h3>Cópia de segurança</h3><p class="mini" style="margin:0">Toda segunda-feira às 3h a planilha é copiada para o Google Drive (ficam as 12 mais recentes). Última cópia: ${b.ultimo?fmtDate(b.ultimo):"ainda não feita"}.</p>
    <div class="row"><span class="chip ${b.ativo?"c-ok":"c-mute"}">${b.ativo?"Automática ligada":"Automática desligada"}</span><span class="spacer"></span>${b.pasta?`<a class="btn" href="${esc(b.pasta)}" target="_blank" rel="noopener">Abrir pasta de cópias</a>`:""}<button type="button" class="btn" id="bAgora">Fazer cópia agora</button></div></div>
   <div class="card stack"><h3>Planilha central</h3><p class="mini" style="margin:0">Todos os dados ficam numa planilha do Google, na conta da central.</p><div class="row"><a class="btn" href="${esc(D.planilha||"#")}" target="_blank" rel="noopener">Abrir planilha</a></div></div></div>`;
@@ -377,13 +375,10 @@ function vConfig(){
 after.config=()=>{
   $("cSalvar").onclick=()=>acao("configSalvar",{config:{emails:$("cEmails").value,hora:+$("cHora").value}},"Aviso salvo.");
   $("cTeste").onclick=async()=>{try{const r=await chamar("emailTeste");toast(r.ok?"E-mail de teste enviado para "+r.enviado+".":r.erro,5000);}catch(e){toast(e.message);}};
-  $("sTrocar").onclick=async()=>{const a=$("sNova").value,b=$("sNova2").value;if(a.length<6)return toast("A senha precisa ter pelo menos 6 caracteres.");if(a!==b)return toast("As senhas não são iguais.");
-    try{const r=await chamar("senhaTrocar",{nova:a});if(!r.ok)return toast(r.erro);senha=a;try{sessionStorage.setItem("fer-sup-senha",a);}catch(e){}toast("Senha trocada.");carregar();}catch(e){toast(e.message);}};
-  $("rSalvar").onclick=()=>acao("recupEmailSalvar",{email:$("rEmail").value.trim()},"E-mail de recuperação salvo.");
   $("bAgora").onclick=()=>acao("backupAgora",{},"Cópia de segurança feita.");
 };
 
 /* ---------- início ---------- */
-try{const s=sessionStorage.getItem("fer-sup-senha");if(s){senha=s;entrar();}}catch(e){}
+try{const s=sessionStorage.getItem("sup-senha")||sessionStorage.getItem("fer-sup-senha");if(s){senha=s;entrar();}}catch(e){}
 if(!CENTRAL.url)msg("msg-login","O painel ainda não está ligado à central. Siga o passo a passo de instalação.",true);
 })();

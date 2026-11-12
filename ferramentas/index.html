@@ -37,13 +37,13 @@
 <div class="wrap" id="v-entrar" hidden>
   <form class="login" id="f-entrar" autocomplete="on">
     <h2>Entrar</h2>
-    <p class="mini" style="margin:0" id="l-intro">Use o usuário e a senha cadastrados pelo supervisor.</p>
+    <p class="mini" style="margin:0" id="l-intro">Use o mesmo usuário e senha do Diário de Obra.</p>
     <label>Usuário<input id="l-usuario" autocomplete="username" autocapitalize="none" spellcheck="false"></label>
     <label>Senha<input id="l-senha" type="password" autocomplete="current-password"></label>
     <label class="check"><input type="checkbox" id="l-lembrar"> Lembrar minha senha neste celular</label>
     <button type="submit" class="btn primary big" id="b-entrar">Entrar</button>
     <div class="msg" id="l-msg" role="status"></div>
-    <p class="mini" style="margin:0">Esqueceu a senha? Peça ao supervisor para cadastrar uma nova.</p>
+    <p class="mini" style="margin:0">Esqueceu a senha? Peça ao supervisor para cadastrar uma nova no Painel do Diário de Obra.</p>
     <p style="margin:0" id="l-outro-box" hidden><button type="button" class="linkbtn" id="l-outro">Entrar com outro usuário</button></p>
   </form>
 </div>
@@ -72,7 +72,8 @@
 <div id="toast" class="toast" hidden></div>
 <footer class="rod wrap"><span id="versao"></span> · <button type="button" class="linkbtn" id="b-instalar-rodape" hidden>Instalar o aplicativo no celular</button></footer>
 
-<script src="config.js?v=2"></script>
-<script src="app.js?v=1" defer></script>
+<script src="../config.js?v=3"></script>
+<script src="config.js?v=3"></script>
+<script src="app.js?v=2" defer></script>
 </body>
 </html>

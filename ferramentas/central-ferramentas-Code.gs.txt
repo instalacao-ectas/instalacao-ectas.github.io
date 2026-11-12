@@ -615,3 +615,9 @@ function configurar() {
   Logger.log("Peças cadastradas: " + ler_("pecas").length);
   Logger.log("Cota de e-mails restante hoje: " + MailApp.getRemainingDailyQuota());
 }
+
+// Rode uma vez pelo editor para autorizar a central a conversar com a central do Diário de Obra (entrada única).
+function testarLigacaoDiario() {
+  const r = UrlFetchApp.fetch(DIARIO_URL + "?acao=ping&_=" + Date.now(), { muteHttpExceptions: true });
+  Logger.log("Central do Diário respondeu: HTTP " + r.getResponseCode());
+}

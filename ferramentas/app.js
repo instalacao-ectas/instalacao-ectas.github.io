@@ -1,6 +1,6 @@
 (function(){
 "use strict";
-const VERSAO="12/11/2026 10:30";
+const VERSAO="12/11/2026 15:00";
 const $=id=>document.getElementById(id);
 const CENTRAL=window.CENTRAL_FERRAMENTAS||{};
 const temCentral=()=>!!(CENTRAL.url&&CENTRAL.chave);
@@ -35,7 +35,22 @@ const S={tab:"conferir",dados:null,fila:[],meus:null,draft:null,oc:{},filterPend
 /* ---------- sessão do técnico (usuário e senha cadastrados pelo supervisor) ---------- */
 const lerSessao=()=>ls.get("fer-sessao",null);
 const gravarSessao=s=>ls.set("fer-sessao",s);
-const MSG_SESSAO="Sua sessão terminou (senha redefinida ou usuário alterado pelo supervisor). Entre novamente. O que está na fila continua no celular.";
+/* entrada única com o Diário de Obra: mesma sessão (localStorage "sessao") e mesma central de usuários */
+const DIARIO=window.CENTRAL||{};
+const sessaoDiario=()=>{const s=ls.get("sessao",null);return s&&s.token?s:null;};
+function sairDiario(){["sessao","obras-lista","bloqueio","desbloq"].forEach(k=>{try{localStorage.removeItem(k);}catch(e){}});}
+/* abre a sessão do Controle de Ferramentas com o login já feito no Diário, sem pedir senha */
+async function ponteDiario(){
+  const sd=sessaoDiario();if(!sd||!temCentral()||!navigator.onLine)return false;
+  try{
+    const res=await chamar({acao:"loginDiario",tokenDiario:sd.token},true);
+    if(res.ok){const ant=lerSessao();gravarSessao({token:res.token,usuario:res.usuario.login,nome:res.usuario.nome,diario:sd.token});ls.set("fer-ultimo-usuario",res.usuario.login);
+      if(!ant||ant.usuario!==res.usuario.login){S.meus=null;try{await kvPut("meus",null);}catch(e){}}return true;}
+    if(res.erro==="sessao_diario")sairDiario();
+  }catch(e){}
+  return false;
+}
+const MSG_SESSAO="Sua sessão terminou (senha redefinida, usuário alterado ou saída do Diário de Obra). Entre novamente. O que está na fila continua no celular.";
 function mostrarLogin(motivo){
   $("b-sair").hidden=true;modoBloqueio(false);
   $("v-entrar").hidden=false;$("nav").hidden=true;$("main").hidden=true;$("stickyHost").innerHTML="";
@@ -59,15 +74,20 @@ $("f-entrar").addEventListener("submit",async e=>{
   if(!navigator.onLine)return erro("Para entrar é preciso internet. Depois o app funciona sem sinal.");
   const b=$("b-entrar");b.disabled=true;$("l-msg").textContent="Entrando…";$("l-msg").className="msg";
   try{
-    const res=await chamar({acao:"login",usuario,senha},true);
-    if(!res.ok){
+    /* entrada única: o usuário e a senha são os do Diário de Obra */
+    const rd=await (await fetch(DIARIO.url,{method:"POST",headers:{"Content-Type":"text/plain;charset=utf-8"},body:JSON.stringify({acao:"login",usuario,senha,chave:DIARIO.chave})})).json();
+    if(!rd.ok){
       const d=temSenhaSalva();
-      if(d&&d.u===usuario&&/incorret/i.test(res.erro||"")){esquecerSenha();$("l-lembrar").checked=false;$("l-senha").value="";throw new Error("A senha salva não vale mais (o supervisor pode ter trocado). Digite a senha nova.");}
-      throw new Error(res.erro||"Não consegui entrar.");
+      if(d&&d.u===usuario&&/incorret/i.test(rd.erro||"")){esquecerSenha();$("l-lembrar").checked=false;$("l-senha").value="";throw new Error("A senha salva não vale mais (o supervisor pode ter trocado). Digite a senha nova.");}
+      throw new Error(rd.erro||"Não consegui entrar.");
     }
+    ls.set("sessao",{token:rd.token,usuario:rd.usuario.login,nome:rd.usuario.nome});
+    try{localStorage.setItem("ultimo-usuario",rd.usuario.login);localStorage.setItem("ultimo-uso",String(Date.now()));localStorage.removeItem("bloqueio");}catch(err){}
+    const res=await chamar({acao:"loginDiario",tokenDiario:rd.token},true);
+    if(!res.ok)throw new Error(res.erro==="sessao_diario"?"Não consegui confirmar o login. Tente de novo.":(res.erro||"Não consegui entrar."));
     const eraBloqueio=bloqueado();
     const anterior=lerSessao();
-    gravarSessao({token:res.token,usuario:res.usuario.login,nome:res.usuario.nome});
+    gravarSessao({token:res.token,usuario:res.usuario.login,nome:res.usuario.nome,diario:rd.token});
     await guardarSenhaLocal(usuario,senha);
     if($("l-lembrar").checked)await lembrarSenha(usuario,senha);else esquecerSenha();
     marcarUso(true);ls.set("fer-ultimo-usuario",res.usuario.login);
@@ -84,10 +104,18 @@ $("b-sair").onclick=()=>{
   if(!confirmaSair){confirmaSair=true;$("b-sair").textContent=pend?"Há "+pend+" registro(s) sem envio. Toque de novo":"Toque de novo para sair";$("b-sair").classList.add("alerta");
     clearTimeout(tSair);tSair=setTimeout(()=>{confirmaSair=false;$("b-sair").textContent="Sair";$("b-sair").classList.remove("alerta");},5000);return;}
   confirmaSair=false;clearTimeout(tSair);$("b-sair").textContent="Sair";$("b-sair").classList.remove("alerta");
-  gravarSessao(null);ls.set("fer-bloqueio",null);$("l-usuario").value="";mostrarLogin("");
+  gravarSessao(null);sairDiario();ls.set("fer-bloqueio",null);$("l-usuario").value="";mostrarLogin("");
 };
-$("l-outro").onclick=()=>{gravarSessao(null);ls.set("fer-bloqueio",null);ls.set("fer-desbloq",null);esquecerSenha();$("l-usuario").value="";mostrarLogin("");$("l-usuario").focus();};
-function sessaoInvalida(){gravarSessao(null);esquecerSenha();ls.set("fer-bloqueio",null);ls.set("fer-desbloq",null);ls.set("fer-sessao-msg",1);mostrarLogin(MSG_SESSAO);}
+$("l-outro").onclick=()=>{gravarSessao(null);sairDiario();ls.set("fer-bloqueio",null);ls.set("fer-desbloq",null);esquecerSenha();$("l-usuario").value="";mostrarLogin("");$("l-usuario").focus();};
+let ponteTentada=false;
+async function sessaoInvalida(){
+  const velha=lerSessao();gravarSessao(null);
+  /* se o login do Diário ainda vale (e é outro token), reabre sem pedir senha */
+  const sd=sessaoDiario();
+  if(!ponteTentada&&sd&&(!velha||velha.diario!==sd.token)){ponteTentada=true;if(await ponteDiario()){ponteTentada=false;atualizarDados();sincronizar();return;}}
+  ponteTentada=false;
+  if(velha&&velha.diario&&sd&&sd.token===velha.diario)sairDiario();
+  esquecerSenha();ls.set("fer-bloqueio",null);ls.set("fer-desbloq",null);ls.set("fer-sessao-msg",1);mostrarLogin(MSG_SESSAO);}
 
 /* senha lembrada no celular: cifrada com uma chave que não sai do aparelho */
 function chaveDb(){return new Promise((ok,no)=>{const q=indexedDB.open("ferramentas-chave",1);q.onupgradeneeded=()=>q.result.createObjectStore("k");q.onsuccess=()=>ok(q.result);q.onerror=()=>no(q.error);});}
@@ -120,7 +148,7 @@ function marcarUso(forcar){if(!forcar&&(bloqueado()||!lerSessao()))return;const 
 ["pointerdown","keydown","touchstart","scroll","input"].forEach(ev=>addEventListener(ev,()=>marcarUso(),{passive:true,capture:true}));
 function verificarInatividade(){if(!lerSessao()||bloqueado()||!$("scanner").hidden)return;if(Date.now()-Math.max(ultimoUso,ls.get("fer-ultimo-uso",0))>=INATIVO_MS)bloquearApp();}
 function modoBloqueio(on){$("l-usuario").readOnly=on;$("l-outro-box").hidden=!on;
-  $("l-intro").textContent=on?"Por segurança, o app foi bloqueado após 20 minutos sem uso. Digite sua senha para continuar. O que você estava preenchendo não se perde.":"Use o usuário e a senha cadastrados pelo supervisor.";}
+  $("l-intro").textContent=on?"Por segurança, o app foi bloqueado após 20 minutos sem uso. Digite sua senha para continuar. O que você estava preenchendo não se perde.":"Use o mesmo usuário e senha do Diário de Obra.";}
 function bloquearApp(){const s=lerSessao();if(!s)return;ls.set("fer-bloqueio",1);salvarRascunho(true);mostrarLogin("");modoBloqueio(true);$("l-usuario").value=s.usuario;$("l-senha").value="";preencherSenhaSalva();}
 function desbloquear(){ls.set("fer-bloqueio",null);marcarUso(true);modoBloqueio(false);esconderLogin();}
 setInterval(verificarInatividade,30000);
@@ -524,6 +552,11 @@ $("versao").textContent="Versão "+VERSAO;
   try{S.meus=await kvGet("meus")||null;}catch(e){}
   try{const r=await kvGet("rascunho");if(r)S.draft=r;}catch(e){}
   try{S.fila=await filaAll();}catch(e){S.fila=[];}
+  /* entrada única: se o Diário já está logado com outro usuário, ou saiu, acompanha */
+  const sf=lerSessao(),sd=sessaoDiario();
+  if(sf&&sd&&sd.usuario!==sf.usuario)gravarSessao(null);
+  else if(sf&&sf.diario&&!sd)gravarSessao(null);
+  if(!lerSessao()&&sd){$("v-entrar").hidden=true;await ponteDiario();}
   if(!lerSessao())mostrarLogin("");
   else if(bloqueado()||Date.now()-ls.get("fer-ultimo-uso",Date.now())>=INATIVO_MS)bloquearApp();
   else{marcarUso(true);esconderLogin();}
