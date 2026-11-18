@@ -29,7 +29,7 @@ Quem já está logado no Diário entra na Agenda sem digitar a senha de novo.
 ## Primeiro acesso do supervisor
 
 1. Abra o painel com a mesma senha do Painel do Diário de Obra.
-2. Em **Cadastros > Funcionários**, ligue cada pessoa ao usuário dela no Diário de Obra. Assim a Minha agenda abre direto no nome certo.
+2. Em **Cadastros > Funcionários**, ligue cada pessoa ao usuário dela no Diário de Obra. Assim o técnico vê a própria agenda (sem isso ele não vê nada, a não ser que o nome do cadastro seja igual ao nome ou usuário do Diário).
 3. Marque **Ativo** só para quem deve aparecer na agenda (até quem saiu continua no histórico).
 4. Passe aos técnicos o endereço **instalacao-ectas.github.io/agenda** (o mesmo usuário e senha do Diário).
 

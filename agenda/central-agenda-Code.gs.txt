@@ -139,11 +139,19 @@ function doGet(e) { return json_({ ok: true, app: "Agenda Técnica ECTAS" }); }
 /* ---------- app do técnico (só leitura) ---------- */
 function dadosCampo_(u) {
   const de = hoje_(-DIAS_PASSADO_CAMPO), ate = hoje_(DIAS_FUTURO_CAMPO);
-  const funcs = funcs_();
-  const eu = funcs.find(f => f.login && f.login === u.login);
+  const eu = funcionarioDoLogin_(funcs_(), u);
+  // o técnico recebe só a própria agenda; sem ligação com o cadastro, não recebe nada
   return { ok: true, usuario: { login: u.login, nome: u.nome }, meuNome: eu ? eu.nome : "", hoje: hoje_(0),
-    funcionarios: funcs.filter(f => f.ativo).map(f => ({ nome: f.nome, funcao: f.funcao, ativo: true })),
-    lancamentos: lancs_().filter(l => l.fim >= de && l.ini <= ate) };
+    lancamentos: eu ? lancs_().filter(l => l.func === eu.nome && l.fim >= de && l.ini <= ate) : [] };
+}
+// 1º: usuário do Diário escolhido no cadastro; 2º: nome ou usuário idêntico ao nome do cadastro (só se houver um único)
+function funcionarioDoLogin_(funcs, u) {
+  const porLogin = funcs.find(f => f.login && f.login === u.login);
+  if (porLogin) return porLogin;
+  const n = s => String(s || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+  const alvos = [n(u.login), n(u.nome)];
+  const iguais = funcs.filter(f => !f.login && alvos.indexOf(n(f.nome)) >= 0);
+  return iguais.length === 1 ? iguais[0] : null;
 }
 
 /* ---------- sessão do técnico: aberta com o login do Diário ---------- */

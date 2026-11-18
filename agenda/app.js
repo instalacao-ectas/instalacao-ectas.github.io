@@ -2,7 +2,7 @@
    Entra com o mesmo usuário e senha do Diário de Obra e guarda a última agenda no celular para ver sem internet. */
 (function(){
 "use strict";
-const VERSAO="18/11/2026 11:30";
+const VERSAO="18/11/2026 12:00";
 const $=id=>document.getElementById(id);
 const {h,hoje,segunda,indexar,minha,vazio}=window.AG;
 const CENTRAL=window.CENTRAL_AGENDA||{};
@@ -69,7 +69,7 @@ $("f-entrar").addEventListener("submit",async e=>{
     if(!res.ok)throw new Error(res.erro==="sessao_diario"?"Não consegui confirmar o login. Tente de novo.":(res.erro||"Não consegui entrar."));
     const ant=lerSessao();
     gravarSessao({token:res.token,usuario:res.usuario.login,nome:res.usuario.nome,diario:rd.token});
-    if(ant&&ant.usuario!==res.usuario.login){S.dados=null;ls.set("agd-dados",null);ls.set("agd-eu",null);}
+    if(ant&&ant.usuario!==res.usuario.login){S.dados=null;ls.set("agd-dados",null);}
     $("l-senha").value="";esconderLogin();toast("Olá, "+res.usuario.nome+".");atualizar();
   }catch(err){erro(err.message||"Não consegui entrar. Verifique a internet.");}
   finally{b.disabled=false;}
@@ -89,7 +89,7 @@ async function atualizar(manual){
   S.carregando=true;if(manual)$("b-atualizar").textContent="Atualizando…";
   try{
     const r=await chamar({acao:"dados"});
-    if(r.ok){S.dados={funcionarios:r.funcionarios||[],lancamentos:r.lancamentos||[],meuNome:r.meuNome||"",em:new Date().toISOString()};
+    if(r.ok){S.dados={lancamentos:r.lancamentos||[],meuNome:r.meuNome||"",em:new Date().toISOString()};
       ls.set("agd-dados",S.dados);S.idx=indexar(S.dados.lancamentos);
       const s=lerSessao();if(s&&r.usuario&&r.usuario.nome!==s.nome)gravarSessao({...s,nome:r.usuario.nome});
       if(manual)toast("Agenda atualizada.");}
@@ -102,7 +102,6 @@ document.addEventListener("visibilitychange",()=>{if(document.visibilityState===
 addEventListener("online",()=>atualizar());
 
 /* ---------- telas ---------- */
-const nomes=()=>(S.dados&&S.dados.funcionarios||[]).filter(f=>f.ativo!==false).map(f=>f.nome);
 function render(){
   document.querySelectorAll("#nav [data-tab]").forEach(b=>b.setAttribute("aria-selected",String(b.dataset.tab===S.tab)));
   const m=$("main");if(m.hidden)return;
@@ -117,14 +116,11 @@ function render(){
   if(foco){const el=$(foco);if(el&&el.focus){el.focus();if(el.type==="search")try{el.setSelectionRange(el.value.length,el.value.length);}catch(e){}}}
 }
 function telaMinha(){
-  const lista=nomes(),auto=S.dados.meuNome&&lista.includes(S.dados.meuNome)?S.dados.meuNome:"";
-  let eu=auto||ls.get("agd-eu","");if(eu&&!lista.includes(eu))eu="";
-  const cab=h("div",{class:"vhead"},h("div",{},h("h2",{text:"Minha agenda"}),h("p",{class:"lead",text:auto?"Olá, "+auto+". Sua alocação de hoje e das próximas semanas.":"Sua alocação de hoje e das próximas semanas."})));
-  const escolha=auto?null:h("div",{class:"quem"},h("label",{class:"field"},"Quem é você?",
-    h("select",{id:"m-eu",onchange:e=>{ls.set("agd-eu",e.target.value);render();}},h("option",{value:"",text:"Escolha seu nome"}),lista.map(n=>h("option",{value:n,selected:n===eu,text:n})))),
-    h("span",{class:"mini",text:"Fica salvo neste celular. O supervisor pode ligar seu nome ao seu usuário para você não precisar escolher."}));
-  if(!eu)return h("div",{},cab,escolha,vazio("Escolha seu nome","Assim que escolher, aparecem a obra de hoje, cidade, veículo e os próximos dias."));
-  return h("div",{},cab,escolha,minha({nome:eu,idx:S.idx}));
+  const eu=S.dados.meuNome||"";
+  const cab=h("div",{class:"vhead"},h("div",{},h("h2",{text:"Minha agenda"}),h("p",{class:"lead",text:eu?"Olá, "+eu+". Sua alocação de hoje e das próximas semanas.":"Sua alocação de hoje e das próximas semanas."})));
+  if(!eu){const s=lerSessao()||{};return h("div",{},cab,vazio("Seu usuário ainda não está ligado à agenda",
+    "Peça ao supervisor para ligar o usuário "+(s.usuario||"")+" ao seu nome no painel, em Cadastros > Funcionários. Depois toque em Atualizar."));}
+  return h("div",{},cab,minha({nome:eu,idx:S.idx}));
 }
 
 /* ---------- instalar na tela inicial ---------- */
