@@ -2,16 +2,16 @@
    Entra com o mesmo usuário e senha do Diário de Obra e guarda a última agenda no celular para ver sem internet. */
 (function(){
 "use strict";
-const VERSAO="12/11/2026 16:00";
+const VERSAO="18/11/2026 11:30";
 const $=id=>document.getElementById(id);
-const {h,hoje,segunda,brA,indexar,grade,ondeEsta,minha,detalhe,vazio}=window.AG;
+const {h,hoje,segunda,indexar,minha,vazio}=window.AG;
 const CENTRAL=window.CENTRAL_AGENDA||{};
 const temCentral=()=>!!(CENTRAL.url&&CENTRAL.chave);
 const DIARIO=window.CENTRAL||{};
 const ls={get(k,d){try{const v=localStorage.getItem(k);return v==null?d:JSON.parse(v);}catch(e){return d;}},set(k,v){try{if(v==null)localStorage.removeItem(k);else localStorage.setItem(k,JSON.stringify(v));}catch(e){}}};
 let toastT;function toast(m,ms){const t=$("toast");t.textContent=m;t.hidden=false;clearTimeout(toastT);toastT=setTimeout(()=>t.hidden=true,ms||3200);}
 
-const S={tab:ls.get("agd-aba","minha"),dados:ls.get("agd-dados",null),idx:new Map(),ini:segunda(hoje()),semanas:ls.get("agd-semanas",2),destaque:"",dia:null,carregando:false};
+const S={tab:"minha",dados:ls.get("agd-dados",null),idx:new Map(),ini:segunda(hoje()),semanas:ls.get("agd-semanas",2),destaque:"",dia:null,carregando:false};
 if(S.dados)S.idx=indexar(S.dados.lancamentos);
 
 /* ---------- sessão: a mesma do Diário de Obra ---------- */
@@ -51,7 +51,7 @@ function mostrarLogin(motivo){
   $("l-msg").textContent=motivo||"";$("l-msg").className="msg"+(motivo?" err":"");
   const u=$("l-usuario");if(!u.value)u.value=(lerSessao()||{}).usuario||ls.get("ultimo-usuario","")||"";
 }
-function esconderLogin(){$("v-entrar").hidden=true;$("nav").hidden=false;$("main").hidden=false;$("b-sair").hidden=false;$("b-atualizar").hidden=false;render();}
+function esconderLogin(){$("v-entrar").hidden=true;$("main").hidden=false;$("b-sair").hidden=false;$("b-atualizar").hidden=false;render();}
 $("f-entrar").addEventListener("submit",async e=>{
   e.preventDefault();
   const usuario=$("l-usuario").value.trim().toLowerCase(),senha=$("l-senha").value;
@@ -102,7 +102,6 @@ document.addEventListener("visibilitychange",()=>{if(document.visibilityState===
 addEventListener("online",()=>atualizar());
 
 /* ---------- telas ---------- */
-document.querySelectorAll("#nav [data-tab]").forEach(b=>b.addEventListener("click",()=>{S.tab=b.dataset.tab;ls.set("agd-aba",S.tab);render();window.scrollTo(0,0);}));
 const nomes=()=>(S.dados&&S.dados.funcionarios||[]).filter(f=>f.ativo!==false).map(f=>f.nome);
 function render(){
   document.querySelectorAll("#nav [data-tab]").forEach(b=>b.setAttribute("aria-selected",String(b.dataset.tab===S.tab)));
@@ -112,10 +111,7 @@ function render(){
   if(!temCentral())partes.push(h("div",{class:"banner",text:"O aplicativo ainda não está ligado à central. Avise o supervisor."}));
   if(!S.dados){partes.push(vazio(S.carregando?"Carregando a agenda…":"Agenda ainda não carregada",S.carregando?"":"Toque em Atualizar com internet."));m.replaceChildren(...partes);return;}
   partes.push(h("p",{class:"atualizado",text:"Agenda atualizada em "+new Date(S.dados.em).toLocaleString("pt-BR",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"})+(navigator.onLine?"":" · sem internet, mostrando a última salva")}));
-  if(S.tab==="minha")partes.push(telaMinha());
-  else if(S.tab==="agenda")partes.push(grade({nomes:nomes(),idx:S.idx,ini:S.ini,semanas:S.semanas,destaque:S.destaque,editavel:false,
-    aoClicar:(nm,d,r)=>detalhe(nm,d,r),aoMudar:(o,leve)=>{Object.assign(S,o);if(o.semanas)ls.set("agd-semanas",o.semanas);render();}}));
-  else partes.push(ondeEsta({nomes:nomes(),idx:S.idx,dia:S.dia,aoMudar:d=>{S.dia=d;render();}}));
+  partes.push(telaMinha());   // o técnico vê só a própria agenda
   m.replaceChildren(...partes);
   const gb2=document.querySelector(".gradebox");if(gb2)gb2.scrollLeft=gsx;
   if(foco){const el=$(foco);if(el&&el.focus){el.focus();if(el.type==="search")try{el.setSelectionRange(el.value.length,el.value.length);}catch(e){}}}
