@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Disponibilidade técnica · ECTAS</title>
+<meta name="theme-color" content="#002B49">
+<meta name="robots" content="noindex">
+<link rel="icon" href="icon-192.png">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800&display=swap">
+<link rel="stylesheet" href="style.css?v=3">
+</head>
+<body>
+<header class="band">
+  <div class="wrap wide">
+    <div class="logo"><img src="../logo.png" alt="ECTAS Saneamento"></div>
+    <div class="apptitle"><h1>Disponibilidade técnica</h1><p>Equipe externa · consulta para vendas e outras áreas</p></div>
+  </div>
+  <div class="stripe"></div>
+</header>
+<main class="wrap wide" id="main" style="padding-top:18px"><div class="empty">Carregando a disponibilidade…</div></main>
+<div id="toast" class="toast" hidden></div>
+<footer class="rod wrap">Somente consulta. Para reservar técnicos, fale com o supervisor da equipe externa.</footer>
+<script src="config.js?v=3"></script>
+<script src="comum.js?v=2"></script>
+<script src="disponibilidade.js?v=2"></script>
+<script>
+(function(){
+"use strict";
+const {h,hoje,segunda,addDias,brA,indexar,vazio}=window.AG,D=window.DISP;
+const k=new URLSearchParams(location.search).get("k")||"";
+const S={ini:segunda(hoje()),semanas:4,dados:null};
+const main=document.getElementById("main");
+async function carregar(){
+  if(!k){main.replaceChildren(vazio("Link incompleto","Abra o link exatamente como foi enviado pelo supervisor."));return;}
+  try{
+    const r=await (await fetch(window.CENTRAL_AGENDA.url,{method:"POST",headers:{"Content-Type":"text/plain;charset=utf-8"},body:JSON.stringify({acao:"disponibilidade",k})})).json();
+    if(!r.ok){main.replaceChildren(vazio(r.erro==="link"?"Este link foi desligado ou trocado":"Não consegui carregar","Peça um link novo ao supervisor da equipe externa."));return;}
+    S.dados=r;S.idx=indexar(r.lancamentos);render();
+  }catch(e){main.replaceChildren(vazio("Sem conexão","Verifique a internet e recarregue a página."));}
+}
+function render(){
+  const r=S.dados,o={idx:S.idx,nomes:r.funcionarios,ini:S.ini,dias:S.semanas*7,obra:r.obra};
+  const baixar=(tipo,b)=>async()=>{b.disabled=true;try{await D[tipo](o);}catch(e){alert(e.message);}finally{b.disabled=false;}};
+  const bP=h("button",{class:"btn small",type:"button"},"Baixar PDF"),bX=h("button",{class:"btn small",type:"button"},"Baixar Excel");
+  bP.onclick=baixar("pdf",bP);bX.onclick=baixar("excel",bX);
+  main.replaceChildren(
+    h("div",{class:"vhead"},h("div",{},h("h2",{text:"Quem está livre"}),h("p",{class:"lead",text:"Atualizado em "+new Date(r.atualizado).toLocaleString("pt-BR",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"})+". A linha verde mostra quantos técnicos estão livres em cada dia útil."})),
+      h("div",{class:"toolbar"},
+        h("button",{class:"btn small",type:"button","aria-label":"Semana anterior",onclick:()=>{S.ini=addDias(S.ini,-7);render();}},"‹"),
+        h("button",{class:"btn small",type:"button",onclick:()=>{S.ini=segunda(hoje());render();}},"Hoje"),
+        h("button",{class:"btn small",type:"button","aria-label":"Próxima semana",onclick:()=>{S.ini=addDias(S.ini,7);render();}},"›"),
+        h("span",{class:"faixa tnum",text:brA(S.ini)+" a "+brA(addDias(S.ini,S.semanas*7-1))}),
+        h("select",{class:"compacto","aria-label":"Período",onchange:e=>{S.semanas=+e.target.value;render();}},[2,4,6,8].map(n=>h("option",{value:n,selected:n===S.semanas},n+" semanas"))),
+        bP,bX)),
+    D.legenda(),D.tabela(o));
+}
+carregar();
+})();
+</script>
+</body>
+</html>

@@ -278,3 +278,24 @@ table.lista tr.lin:hover td{background:var(--surface-2)}
   .edlinha.ob{grid-template-columns:70px 1fr}
   .toolbar{margin-left:0}
 }
+
+/* ---------- Disponibilidade técnica ---------- */
+.disp{display:flex;align-items:center;justify-content:center;text-align:center;height:100%;min-height:40px;border-radius:6px;padding:3px 5px;font-size:10.5px;font-weight:700;line-height:1.2;overflow-wrap:anywhere}
+.d-livre{background:var(--ok-bg);color:var(--ok)}
+.d-campo{background:var(--g1);color:var(--t1)}
+.d-cap{background:var(--g5);color:var(--t5)}
+.d-aus{background:var(--g4);color:var(--t4)}
+.d-res{background:var(--surface-2);color:var(--muted)}
+.disp.plan{font-style:italic;font-weight:600;border:1.5px dashed currentColor;background:color-mix(in srgb,currentColor 12%,var(--surface))}
+.disp.d-campo.plan{color:var(--g1)}
+.fds .disp.d-livre{background:transparent}
+.legenda i.d-livre,.legenda i.d-campo,.legenda i.d-cap,.legenda i.d-aus,.legenda i.d-res{border:1px solid var(--line)}
+.dispgrade tr.livres td{background:var(--surface-2);text-align:center;font-size:12px;padding:6px 4px;color:var(--muted)}
+.dispgrade tr.livres td.nome{font-weight:800;color:var(--fg)}
+.dispgrade tr.livres td b{color:var(--ok);font-size:15px}
+.dispgrade tr.livres td.zero b{color:var(--bad)}
+.dispgrade td.cel{height:46px;cursor:default}
+.partilha{display:flex;flex-direction:column;gap:10px;border:1px solid var(--line);border-radius:10px;padding:12px}
+.partilha h3{margin:0;font-size:14px}
+.linkcaixa{display:flex;gap:6px;flex-wrap:wrap}
+.linkcaixa input{flex:1 1 220px;font-size:13px}

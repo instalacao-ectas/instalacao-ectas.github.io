@@ -2,7 +2,7 @@
    Mesma senha do Painel do Diário de Obra. Lança e edita a programação, cuida dos cadastros e das obras em espera. */
 (function(){
 "use strict";
-const VERSAO="12/11/2026 16:00";
+const VERSAO="18/11/2026 12:30";
 const $=id=>document.getElementById(id);
 const A=window.AG;
 const {h,hoje,addDias,segunda,dow,br,brA,dif,ehData,rotulo,cls,norm,kvs,vazio,indexar,grade,ondeEsta,modal,fechar,TIPOS,COM_OBRA,DOWL}=A;
@@ -66,11 +66,59 @@ function render(){
 }
 function tAgenda(){
   return grade({nomes:ativos(),idx,ini:S.ini,semanas:S.semanas,destaque:S.destaque,editavel:true,
-    extraBotoes:h("button",{class:"btn primary small",type:"button",onclick:()=>formLanc(null,{})},"+ Lançar"),
+    extraBotoes:[h("button",{class:"btn small",type:"button",onclick:compartilhar},"Compartilhar disponibilidade"),h("button",{class:"btn primary small",type:"button",onclick:()=>formLanc(null,{})},"+ Lançar")],
     aoClicar:(nm,d,r)=>{if(r)formLanc(r.it);else formLanc(null,{func:[nm],ini:d,fim:d});},
     aoMudar:o=>{Object.assign(S,o);if(o.semanas)lss("agd-sup-semanas",o.semanas);render();}});
 }
 function tHoje(){return ondeEsta({nomes:ativos(),idx,dia:S.dia,aoMudar:d=>{S.dia=d;render();}});}
+
+/* ---------- compartilhar a disponibilidade técnica com outras áreas ---------- */
+function compartilhar(){
+  const corpo=h("div",{class:"body"});
+  const ini=h("input",{type:"date",id:"d-ini",value:S.ini});
+  const sem=h("select",{id:"d-sem"},[2,4,6,8].map(n=>h("option",{value:n,selected:n===4},n+" semanas")));
+  const obra=h("input",{type:"checkbox",id:"d-obra",checked:true});
+  const msgA=h("div",{class:"mini full",role:"status"});
+  const opc=()=>({idx,nomes:ativos(),ini:ehData(ini.value)?segunda(ini.value):S.ini,dias:(+sem.value)*7,obra:obra.checked});
+  const baixar=async(tipo,b)=>{b.disabled=true;const t=b.textContent;b.textContent="Gerando…";
+    try{await window.DISP[tipo](opc());msgA.textContent="Arquivo gerado. Envie para o setor por e-mail ou WhatsApp.";}
+    catch(e){msgA.textContent=e.message||"Não consegui gerar o arquivo.";}finally{b.disabled=false;b.textContent=t;}};
+  const bPdf=h("button",{class:"btn primary small",type:"button"},"Baixar PDF");bPdf.onclick=()=>baixar("pdf",bPdf);
+  const bXls=h("button",{class:"btn small",type:"button"},"Baixar Excel");bXls.onclick=()=>baixar("excel",bXls);
+  const arquivo=h("div",{class:"partilha full"},h("h3",{text:"1. Arquivo para enviar"}),
+    h("p",{class:"mini",style:"margin:0",text:"Mostra, dia a dia, quem está livre, em campo ou indisponível, e quantos técnicos estão livres em cada dia útil. Folgas e atestados aparecem só como \"Indisponível\"."}),
+    h("div",{class:"row"},h("label",{class:"field",style:"flex:1;min-width:140px"},"A partir da semana de",ini),h("label",{class:"field",style:"flex:1;min-width:120px"},"Período",sem)),
+    h("label",{class:"check"},obra,"Mostrar o nome da obra (desmarque para mostrar só \"Ocupado\" e a cidade)"),
+    h("div",{class:"row"},bPdf,bXls),msgA);
+  const caixaLink=h("div",{class:"stack",style:"gap:8px"},h("p",{class:"mini",style:"margin:0",text:"Carregando…"}));
+  const link=h("div",{class:"partilha full"},h("h3",{text:"2. Link de consulta (sempre atualizado)"}),
+    h("p",{class:"mini",style:"margin:0",text:"Quem recebe o link vê a disponibilidade a qualquer momento, sem senha e sem poder alterar nada. Você pode trocar ou desligar o link quando quiser."}),caixaLink);
+  corpo.append(arquivo,link);
+  async function link_(modo,extra){
+    caixaLink.replaceChildren(h("p",{class:"mini",style:"margin:0",text:"Aguarde…"}));
+    try{const r=await chamar("dispLink",{modo,...(extra||{})});desenhar(r);}catch(e){caixaLink.replaceChildren(h("p",{class:"aviso",text:e.message}));}
+  }
+  function desenhar(r){
+    if(!r.k){caixaLink.replaceChildren(h("button",{class:"btn primary small",type:"button",onclick:()=>link_("ativar")},"Criar link de consulta"));return;}
+    const url=window.DISP.linkConsulta(r.k),txt="Disponibilidade técnica da equipe externa ECTAS (atualizada em tempo real): "+url;
+    const campo=h("input",{type:"text",id:"d-link",value:url,readonly:true,onfocus:e=>e.target.select()});
+    const copiar=h("button",{class:"btn small",type:"button"},"Copiar");
+    copiar.onclick=async()=>{try{await navigator.clipboard.writeText(url);copiar.textContent="Copiado";}catch(e){campo.select();copiar.textContent="Use Ctrl+C";}setTimeout(()=>copiar.textContent="Copiar",2500);};
+    const obraL=h("input",{type:"checkbox",checked:r.obra,onchange:e=>link_("ver",{obra:e.target.checked})});
+    const novo=h("button",{class:"btn small",type:"button"},"Gerar novo link");
+    novo.onclick=()=>{if(novo.dataset.a!=="1"){novo.dataset.a="1";novo.textContent="Confirmar: o link atual para de funcionar";return;}link_("novo");};
+    const desl=h("button",{class:"btn bad small",type:"button"},"Desligar link");
+    desl.onclick=()=>{if(desl.dataset.a!=="1"){desl.dataset.a="1";desl.textContent="Confirmar desligar";return;}link_("desligar");};
+    caixaLink.replaceChildren(h("div",{class:"linkcaixa"},campo,copiar),
+      h("div",{class:"row"},h("a",{class:"btn small",href:"https://wa.me/?text="+encodeURIComponent(txt),target:"_blank",rel:"noopener"},"Enviar por WhatsApp"),
+        h("a",{class:"btn small",href:"mailto:?subject="+encodeURIComponent("Disponibilidade técnica ECTAS")+"&body="+encodeURIComponent(txt),target:"_blank"},"Enviar por e-mail"),
+        h("a",{class:"btn small",href:url,target:"_blank",rel:"noopener"},"Abrir")),
+      h("label",{class:"check"},obraL,"No link, mostrar o nome da obra"),
+      h("div",{class:"row"},novo,desl));
+  }
+  link_("ver");
+  modal("Compartilhar disponibilidade técnica",corpo,[h("span",{class:"spacer"}),h("button",{class:"btn",type:"button",onclick:fechar},"Fechar")]);
+}
 
 /* ---------- lista de lançamentos ---------- */
 function tLanc(){

@@ -127,6 +127,7 @@ function doPost(e) {
   try { b = JSON.parse(e.postData.contents); } catch (err) { return json_({ ok: false, erro: "formato inválido" }); }
   if (!b) return json_({ ok: false, erro: "formato inválido" });
   if (b.painel) return json_(acaoSupervisor_(b));
+  if (b.acao === "disponibilidade") return json_(disponibilidade_(b));
   if (b.chave !== CHAVE_CAMPO) return json_({ ok: false, erro: "chave inválida" });
   if (b.acao === "loginDiario") return json_(loginDiario_(b));
   const u = sessao_(b.token);
@@ -228,6 +229,7 @@ function acaoSupervisor_(b) {
       case "veicSalvar": return listaSalvar_("veic", (b.lista || []).map(v => ({ nome: limpa_(v, 80) })).filter(v => v.nome));
       case "pendSalvar": return pendSalvar_(b.tipo === "manut" ? "manut" : "espera", b.item || {});
       case "pendExcluir": return pendExcluir_(b.tipo === "manut" ? "manut" : "espera", String(b.uid || ""));
+      case "dispLink": return dispLink_(b);
       case "backupAgora": garantirGatilhoBackup_(); return backupSemanal();
     }
     return { ok: false, erro: "ação desconhecida" };
@@ -283,6 +285,25 @@ function pendExcluir_(t, uid) {
   const a = ler_(t).find(x => String(x.uid) === uid);
   if (a) aba_(t).deleteRow(a._linha);
   return { ok: true };
+}
+
+/* ---------- link de disponibilidade técnica (consulta para vendas e outras áreas) ---------- */
+// O supervisor gera um link com uma chave própria; quem tem o link vê a ocupação, sem editar nada.
+function dispLink_(b) {
+  const pr = PropertiesService.getScriptProperties();
+  if (b.modo === "novo" || (b.modo === "ativar" && !pr.getProperty("DISP_K"))) pr.setProperty("DISP_K", Utilities.getUuid().replace(/-/g, ""));
+  if (b.modo === "desligar") pr.deleteProperty("DISP_K");
+  if (typeof b.obra === "boolean") pr.setProperty("DISP_OBRA", b.obra ? "1" : "0");
+  return { ok: true, k: pr.getProperty("DISP_K") || "", obra: pr.getProperty("DISP_OBRA") !== "0" };
+}
+function disponibilidade_(b) {
+  const k = prop_("DISP_K");
+  if (!k || String(b.k || "") !== k) return { ok: false, erro: "link" };
+  const obra = prop_("DISP_OBRA") !== "0", de = hoje_(-7), ate = hoje_(DIAS_FUTURO_CAMPO);
+  const nomes = funcs_().filter(f => f.ativo).map(f => f.nome);
+  const lancs = lancs_().filter(l => l.fim >= de && l.ini <= ate && nomes.indexOf(l.func) >= 0)
+    .map(l => ({ id: l.id, func: l.func, ini: l.ini, fim: l.fim, tipo: l.tipo, status: l.status, seq: l.seq, cidade: l.cidade, obra: obra ? l.obra : "" }));
+  return { ok: true, hoje: hoje_(0), atualizado: agora_(), obra: obra, funcionarios: nomes, lancamentos: lancs };
 }
 
 /* ---------- cópia de segurança semanal ---------- */
