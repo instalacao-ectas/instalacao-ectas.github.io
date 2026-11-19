@@ -490,11 +490,22 @@ function renderObras(L){
   barraEx("res");
 }
 
+const dataHora=s=>{const d=new Date(s);return isNaN(d)?String(s||""):d.toLocaleString("pt-BR",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"});};
+$("b-pdf-faltam").onclick=async()=>{
+  const b=$("b-pdf-faltam");b.disabled=true;b.textContent="Gerando os PDFs…";msg("msg-rdo","A central está montando os PDFs com os dados, as fotos e a assinatura. Pode levar alguns minutos.");
+  try{const j=await enviar({acao:"pdfFaltantes"});await carregar();
+    msg("msg-rdo",(j.gerados?(j.gerados===1?"1 PDF gerado.":j.gerados+" PDFs gerados."):"Nenhum PDF gerado.")+(j.faltam?" Ainda faltam "+j.faltam+" (clique de novo para continuar).":""),!!j.faltam&&!j.gerados);}
+  catch(e){msg("msg-rdo","Não consegui gerar os PDFs: "+e.message,true);}
+  finally{b.disabled=false;b.textContent="Gerar os PDFs que faltam";}
+};
 function renderLista(L){
   $("n-rdos").textContent="("+L.length+")";
   const R=EX.rdo;document.querySelector("#tab-rdo .col-sel").hidden=!R.on;listaAtual=L;
   for(const u of [...R.sel])if(!L.some(r=>r.uid===u))R.sel.delete(u);
-  $("t-rdos").innerHTML=L.length?L.map((r,i)=>`<tr data-i="${i}"${R.on&&R.sel.has(r.uid)?' class="marcada"':''}>${R.on?`<td class="col-sel"><input type="checkbox"${R.sel.has(r.uid)?" checked":""}></td>`:""}<td>${fmt(r.data)}</td><td>${esc(obraNome(r))}</td><td class="n">${esc(r.rdo)}</td><td>${esc(r.resp)}</td><td class="n">${r.total}</td><td>${esc(semIcone(r.clima_manha)||"-")} / ${esc(semIcone(r.clima_tarde)||"-")}</td><td class="n">${num(r.n_fotos)}</td><td>${String(r.ocor||"").trim()?'<span class="pill alert">Sim</span>':"-"}</td></tr>`).join(""):'<tr><td colspan="8" class="status">Nenhum RDO no período.</td></tr>';
+  $("t-rdos").innerHTML=L.length?L.map((r,i)=>`<tr data-i="${i}"${R.on&&R.sel.has(r.uid)?' class="marcada"':''}>${R.on?`<td class="col-sel"><input type="checkbox"${R.sel.has(r.uid)?" checked":""}></td>`:""}<td>${fmt(r.data)}</td><td>${esc(obraNome(r))}</td><td class="n">${esc(r.rdo)}</td><td>${esc(r.resp)}</td><td class="n">${r.total}</td><td>${esc(semIcone(r.clima_manha)||"-")} / ${esc(semIcone(r.clima_tarde)||"-")}</td><td class="n">${num(r.n_fotos)}</td><td>${String(r.ocor||"").trim()?'<span class="pill alert">Sim</span>':"-"}</td><td>${r.pdf?'<span class="pill ok">✓</span>':'<span class="pill alert">falta</span>'}</td><td>${r.whatsapp?'<span class="pill ok">✓ '+esc(dataHora(r.whatsapp))+'</span>':'<span class="pill alert">não</span>'}</td></tr>`).join(""):'<tr><td colspan="10" class="status">Nenhum RDO no período.</td></tr>';
+  const semPdf=todos.filter(r=>!r.pdf).length;
+  $("aviso-pdf").hidden=!semPdf;
+  $("aviso-pdf-txt").textContent=semPdf?(semPdf===1?"1 RDO ainda está sem PDF na central.":semPdf+" RDOs ainda estão sem PDF na central.")+" A central monta o PDF sozinha de hora em hora; para fazer agora, clique ao lado.":"";
   $("t-rdos").querySelectorAll("tr[data-i]").forEach(tr=>tr.onclick=e=>{
     const r=L[+tr.dataset.i];
     if(R.on){const c=tr.querySelector("input");if(e.target!==c)c.checked=!c.checked;marcar("rdo",r.uid,c.checked,tr);return;}
@@ -568,13 +579,19 @@ function abrir(r){
     ${bloco("Atividades executadas",r.ativ)}${bloco("Equipamentos",r.equip)}${bloco("Materiais recebidos",r.mat)}
     ${bloco("Ocorrências",r.ocor)}${bloco("Observações",r.obs)}
     ${fotos.length?`<div class="det"><div><span>Fotos (${fotos.length})</span></div></div><div class="galeria">${fotos.map((f,i)=>`<figure><div class="ph" data-id="${esc(f.id)}">Carregando…</div><figcaption><b>Foto ${i+1}:</b> ${esc(f.desc||"sem legenda")}</figcaption></figure>`).join("")}</div>`:""}
-    <div class="topo">${r.pdf?`<button type="button" class="btn pri" id="m-pdf">⬇ Baixar PDF do RDO</button>`:`<span class="status">O PDF deste RDO ainda não chegou à central.</span>`}
+    <div class="topo">${r.pdf?`<button type="button" class="btn pri" id="m-pdf">⬇ Baixar PDF do RDO</button>`:`<button type="button" class="btn pri" id="m-gerar">Gerar o PDF deste RDO agora</button>`}
+    ${r.whatsapp?`<span class="pill ok">✓ Enviado no WhatsApp em ${esc(dataHora(r.whatsapp))}</span>`:`<span class="pill alert">Sem registro de envio no WhatsApp</span>`}
     ${r.pasta_fotos?`<a href="${esc(r.pasta_fotos)}" target="_blank" rel="noopener" class="status">Abrir pasta da obra no Google Drive</a>`:""}</div>
     <div class="msg" id="m-msg" role="status"></div>`;
   $("modal").hidden=false;
   $("m-fechar").onclick=fechar;
   EX.det.conf=false;clearTimeout(EX.det.t);
   $("m-excluir").onclick=()=>confirmarExcluirRdos("det",[r.uid],$("m-excluir"),"m-msg-ex",()=>{fechar();});
+  if(!r.pdf)$("m-gerar").onclick=async()=>{
+    const b=$("m-gerar");b.disabled=true;b.textContent="Gerando o PDF…";msg("m-msg","A central está montando o PDF com os dados, as fotos e a assinatura.");
+    try{const j=await enviar({acao:"pdfGerar",uid:r.uid});r.pdf=j.id;await carregar();const nr=todos.find(x=>x.uid===r.uid);abrir(nr||r);msg("m-msg","PDF gerado. Clique em Baixar PDF do RDO.");}
+    catch(e){msg("m-msg","Não consegui gerar o PDF: "+e.message,true);b.disabled=false;b.textContent="Gerar o PDF deste RDO agora";}
+  };
   if(r.pdf)$("m-pdf").onclick=async()=>{
     const b=$("m-pdf");b.disabled=true;msg("m-msg","Baixando o PDF…");
     try{

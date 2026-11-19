@@ -1,6 +1,6 @@
 (function(){
 "use strict";
-const VERSAO="12/11/2026 11:30";
+const VERSAO="19/11/2026 13:00";
 const $=id=>document.getElementById(id);
 const CLIMAS=["☀️ Bom","⛅ Nublado","🌧️ Chuva","⛈️ Impraticável"];
 const MO=[["m_lid","Líder"],["m_mon","Montador"],["m_aux","Auxiliar"],["m_out","Outros"]];
@@ -359,7 +359,7 @@ function sessaoInvalida(){gravarSessao(null);esquecerSenha();try{localStorage.re
 // apaga do celular os RDOs com mais de 48 h que já estão na central
 async function limparAntigos(){
   if(!temCentral())return;
-  const velhos=registros.filter(r=>!dentroPrazo(r)&&r.central==="ok"&&r.centralPdf==="ok");
+  const velhos=registros.filter(r=>!dentroPrazo(r)&&r.central==="ok"&&r.centralPdf==="ok"&&(!r.zapExigido||r.whatsappEm));
   for(const r of velhos){try{await dbDel(r._id);}catch(e){}}
   if(velhos.length){registros=registros.filter(r=>!velhos.includes(r));}
 }
@@ -378,7 +378,7 @@ async function salvar(){
   const existe=await verificarDiaCentral(r,id);
   if(existe){const e=new Error(existe.erro+" Se precisar complementar, edite o RDO existente (se for seu) ou fale com o supervisor.");e.dup=true;throw e;}
   const antigo=editId?registros.find(x=>x._id===editId):null;
-  const reg={...r,_id:id,criadoEm:antigo?(antigo.criadoEm||new Date(criadoEm(antigo)).toISOString()):new Date().toISOString(),salvoEm:new Date().toISOString(),central:"pendente",centralPdf:"pendente"};
+  const reg={...r,_id:id,criadoEm:antigo?(antigo.criadoEm||new Date(criadoEm(antigo)).toISOString()):new Date().toISOString(),salvoEm:new Date().toISOString(),central:"pendente",centralPdf:"pendente",zapExigido:true};
   await dbPut(reg);
   gravarContador(reg);
   await carregar();
@@ -521,12 +521,12 @@ async function enviarCentral(r){
   const fs=(r.fotos||[]).filter(f=>f&&f.blob);
   const {fotos,...dados}=r;
   await postCentral({acao:"salvar",rdo:{...dados,uid:r._id,n_fotos:fs.length}});
+  await enviarPdfCentral(r);           // o PDF vai logo depois dos dados, antes das fotos
   for(let i=0;i<fs.length;i++){
     const b64=(await blobToData(fs[i].blob)).split(",")[1];
     await postCentral({acao:"foto",uid:r._id,idx:i,desc:fs[i].desc||"",b64});
   }
   await postCentral({acao:"fim",uid:r._id});
-  await enviarPdfCentral(r);
 }
 // PDF do RDO guardado na pasta da obra, junto das fotos
 async function enviarPdfCentral(r){
@@ -552,6 +552,11 @@ async function sincronizarRodada(){
     if(!erro)for(const r of registros.filter(x=>x.central==="ok"&&x.centralPdf!=="ok"&&meus(x))){
       try{await enviarPdfCentral(r);r.centralPdf="ok";await dbPut(r);}
       catch(e){erro=String(e&&e.message||e);break;}
+    }
+    // avisa a central quando o PDF foi compartilhado no WhatsApp
+    if(!erro)for(const r of registros.filter(x=>x.central==="ok"&&x.whatsappEm&&x.centralZap!=="ok"&&meus(x))){
+      try{await postCentral({acao:"zap",uid:r._id,em:r.whatsappEm});r.centralZap="ok";await dbPut(r);}
+      catch(e){break;}   // tenta de novo na próxima rodada, sem mostrar erro ao encarregado
     }
   }finally{sincronizando=false;ultimoErroCentral=erro;render();}
 }
@@ -583,6 +588,14 @@ function textoCurto(r){
 let logoData=null;
 function blobToData(b){return new Promise((ok,no)=>{const fr=new FileReader();fr.onload=()=>ok(fr.result);fr.onerror=no;fr.readAsDataURL(b);});}
 function dims(src){return new Promise(ok=>{const i=new Image();i.onload=()=>ok([i.naturalWidth,i.naturalHeight]);i.onerror=()=>ok([4,3]);i.src=src;});}
+// foto menor dentro do PDF (o PDF fica leve para o WhatsApp e para a central)
+function encolher(data,max=1200,q=0.72){
+  return new Promise(ok=>{const img=new Image();img.onload=()=>{
+    const s=Math.min(1,max/Math.max(img.naturalWidth,img.naturalHeight));if(s>=1){ok(data);return;}
+    const c=document.createElement("canvas");c.width=Math.round(img.naturalWidth*s);c.height=Math.round(img.naturalHeight*s);
+    c.getContext("2d").drawImage(img,0,0,c.width,c.height);ok(c.toDataURL("image/jpeg",q));};
+    img.onerror=()=>ok(data);img.src=data;});
+}
 async function gerarPdf(lst){
   const {jsPDF}=window.jspdf, doc=new jsPDF({unit:"mm",format:"a4",compress:true});
   const W=210,H=297,M=15,CW=W-2*M;
@@ -646,7 +659,7 @@ async function gerarPdf(lst){
         if(col===0)espaco(fh+14,r);
         const x=M+col*(fw+gap);
         try{
-          const data=await blobToData(fs[i].blob);
+          const data=await encolher(await blobToData(fs[i].blob));
           const [iw,ih]=await dims(data);const s=Math.min(fw/iw,fh/ih),dw=iw*s,dh=ih*s;
           doc.setFillColor(238,242,245);doc.rect(x,y,fw,fh,"F");
           doc.addImage(data,"JPEG",x+(fw-dw)/2,y+(fh-dh)/2,dw,dh);
@@ -765,10 +778,11 @@ async function compartilhar(){
   const {file,r}=envio;
   try{
     await navigator.share({files:[file],text:textoCurto(r),title:file.name});
+    await marcarZap(r);
     pfMsg("Enviado. Confira no WhatsApp se foi para o grupo certo.");
     return true;
   }catch(e){
-    if(e&&e.name==="AbortError"){pfMsg("Envio cancelado. Toque no botão verde para tentar de novo.");return false;}
+    if(e&&e.name==="AbortError"){pfMsg("Envio cancelado. O RDO está salvo, mas só fica concluído depois de enviado no WhatsApp. Toque no botão verde.",true);return false;}
     if(e&&e.name==="NotAllowedError"){pfMsg("Toque no botão verde para enviar.");return false;}
     pfMsg("Não consegui abrir o compartilhamento ("+(e&&e.message||e)+").",true);return false;
   }
@@ -787,44 +801,15 @@ async function prepararEnvio(r,fmt){
   const share=podeCompartilhar(file);
   $("pf-enviar").textContent=share?"Enviar "+F.rotulo+" no WhatsApp":"Abrir WhatsApp";
   $("pf-passos").hidden=share;pfMsg("");
-  $("pf-fotos").hidden=!(share&&n);
   $("v-painel").hidden=false;window.scrollTo(0,0);
   return share;
 }
 $("pf-enviar").onclick=()=>{
   if(!envio)return;
   if(podeCompartilhar(envio.file))compartilhar();
-  else abrirWa(textoCurto(envio.r));
+  else{abrirWa(textoCurto(envio.r));marcarZap(envio.r);}   // aparelho sem compartilhar arquivo: PDF baixado + WhatsApp aberto
 };
-// fotos soltas, com o texto do RDO como legenda
-function arquivosFotos(r){
-  const base=nomeArq("RDO "+(r.rdo||"")+" "+[r.idobra,r.obra].filter(Boolean).join(" "),"x").slice(0,-2);
-  return (r.fotos||[]).filter(f=>f&&f.blob).map((f,i)=>new File([f.blob],base+"_foto"+(i+1)+".jpg",{type:"image/jpeg"}));
-}
-function textoComFotos(r){
-  const fs=(r.fotos||[]);
-  return textoCompleto(r)+(fs.length?"\n\n*Fotos:*\n"+fs.map((f,i)=>(i+1)+". "+(f.desc||"sem legenda")).join("\n"):"");
-}
-async function enviarFotos(r,out){
-  const files=arquivosFotos(r);
-  if(!files.length){out("Este RDO não tem fotos. Use o envio em PDF ou só texto.",true);return;}
-  let ok=false;try{ok=!!(navigator.share&&navigator.canShare&&navigator.canShare({files}));}catch(e){}
-  if(!ok){out("Este aparelho não envia fotos direto daqui. Use o envio em PDF.",true);return;}
-  try{await navigator.share({files,text:textoComFotos(r)});out("Fotos enviadas com o texto. Confira no WhatsApp.");}
-  catch(e){
-    if(e&&e.name==="AbortError"){out("Envio cancelado.");return;}
-    if(e&&e.name==="NotAllowedError"){envio=envio||{r};envio.r=r;$("v-painel").hidden=false;window.scrollTo(0,0);pfMsg("Toque em Enviar fotos com o texto para concluir.");return;}
-    out("Não consegui abrir o compartilhamento ("+(e&&e.message||e)+").",true);
-  }
-}
-$("pf-fotos").onclick=()=>{if(envio&&envio.r)enviarFotos(envio.r,pfMsg);};
-$("b-fotos").onclick=async()=>{
-  if(!validar())return;
-  if(!fotos.length){msg("Adicione pelo menos uma foto, ou use o envio em PDF.",true);return;}
-  try{const r=await salvar();limpar();msg("RDO "+r.rdo+" salvo.");await enviarFotos(r,msg);}
-  catch(e){msg(e&&e.dup?e.message:"Não consegui salvar ("+(e&&e.message||e)+").",true);}
-};
-$("pf-fechar").onclick=()=>{$("v-painel").hidden=true;envio=null;};
+$("pf-fechar").onclick=()=>{$("v-painel").hidden=true;envio=null;mostrarPendZap();};
 
 async function salvarEEnviar(btn,fmt){
   if(!validar())return;
@@ -835,26 +820,42 @@ async function salvarEEnviar(btn,fmt){
     limpar();
     msg("RDO "+r.rdo+" salvo.");
     if(share)await compartilhar();      // abre direto a tela de compartilhar
-    else{baixarArquivo(envio.blob,envio.nome);pfMsg("Este aparelho não envia arquivos direto. O "+F.rotulo+" foi baixado: use Abrir WhatsApp e anexe pelo clipe.");}
+    else{baixarArquivo(envio.blob,envio.nome);pfMsg("Este aparelho não envia arquivos direto. O PDF foi baixado: toque em Abrir WhatsApp e anexe pelo clipe, em Documento.");}
   }catch(e){msg(e&&e.dup?e.message:"Não consegui gerar o "+F.rotulo+" ("+(e&&e.message||e)+").",true);}
   finally{btn.disabled=false;btn.innerHTML=lbl;}
 }
 $("b-wa").onclick=()=>salvarEEnviar($("b-wa"),"pdf");
-$("b-word").onclick=()=>salvarEEnviar($("b-word"),"docx");
-$("b-save").onclick=async()=>{
-  if(!validar())return;
-  try{const r=await salvar();limpar();msg("RDO "+r.rdo+" salvo neste celular.");}
-  catch(e){msg(e&&e.dup?e.message:"Não consegui salvar ("+(e&&e.message||e)+").",true);}
-};
-$("b-txt").onclick=()=>{if(!validar())return;const r=lerForm();if(!r.rdo){r.rdo=String(proxRdo(r));$("rdo").value=r.rdo;}abrirWa(textoCompleto(r));};
 let confirmLimpar=false;
 $("b-limpar").onclick=()=>{
   if(!confirmLimpar){confirmLimpar=true;$("b-limpar").textContent="Toque de novo para confirmar";setTimeout(()=>{confirmLimpar=false;$("b-limpar").textContent="Limpar formulário";},3000);return;}
   confirmLimpar=false;$("b-limpar").textContent="Limpar formulário";limpar();msg("");
 };
 
+/* ---------- RDO só fica concluído depois de enviado no WhatsApp ---------- */
+async function marcarZap(r){
+  const reg=registros.find(x=>x._id===(r&&r._id));if(!reg||reg.whatsappEm)return;
+  reg.whatsappEm=new Date().toISOString();reg.centralZap="pendente";
+  await dbPut(reg);mostrarPendZap();render();sincronizar();
+}
+function faltaZap(){const s=lerSessao();return registros.filter(r=>r.zapExigido&&!r.whatsappEm&&doResponsavel(r)).sort((a,b)=>criadoEm(a)-criadoEm(b));}
+function mostrarPendZap(){
+  const p=faltaZap(),box=$("pend-zap");
+  if(!p.length||!lerSessao()){box.hidden=true;$("f").hidden=false;return;}
+  const r=p[0];
+  $("pend-zap-txt").innerHTML="O <b>RDO nº "+esc(r.rdo||"-")+"</b> de "+esc(obraNome(r))+" ("+esc(fmtData(r.data))+") foi salvo, mas o PDF ainda não foi enviado no WhatsApp. Envie para concluir e liberar o próximo RDO."+(p.length>1?" Faltam "+p.length+" RDOs.":"");
+  $("pend-zap-btn").dataset.id=r._id;box.hidden=false;
+  $("f").hidden=!!(!editId);   // enquanto houver pendente, não começa outro RDO (editar continua liberado)
+}
+$("pend-zap-btn").onclick=async()=>{
+  const r=registros.find(x=>x._id===$("pend-zap-btn").dataset.id);if(!r)return;
+  const b=$("pend-zap-btn");b.disabled=true;b.textContent="Gerando o PDF…";
+  try{const share=await prepararEnvio(r,"pdf");if(share)await compartilhar();else{baixarArquivo(envio.blob,envio.nome);}}
+  catch(e){$("pend-zap-msg").textContent="Não consegui gerar o PDF ("+(e&&e.message||e)+").";$("pend-zap-msg").className="msg err";}
+  finally{b.disabled=false;b.textContent="Enviar PDF no WhatsApp";}
+};
+
 /* ---------- abas e histórico ---------- */
-function tab(h){$("t-novo").setAttribute("aria-selected",String(!h));$("t-hist").setAttribute("aria-selected",String(h));$("v-novo").hidden=h;$("v-hist").hidden=!h;}
+function tab(h){$("t-novo").setAttribute("aria-selected",String(!h));$("t-hist").setAttribute("aria-selected",String(h));$("v-novo").hidden=h;$("v-hist").hidden=!h;mostrarPendZap();}
 $("t-novo").onclick=()=>tab(false);$("t-hist").onclick=()=>tab(true);
 function filtrados(asc){
   const o=$("fobra").value;
@@ -862,6 +863,7 @@ function filtrados(asc){
 }
 let thumbUrls=[];
 function render(){
+  try{mostrarPendZap();}catch(e){}
   const pend=temCentral()?registros.filter(r=>r.central!=="ok"&&r.central!=="recusado").length:0;
   const st=$("sync-st");
   if(st){st.hidden=!pend;st.querySelector("span").textContent=pend+" RDO"+(pend>1?"s":"")+" aguardando envio à central do supervisor"+(ultimoErroCentral?" (último erro: "+(/failed to fetch|networkerror|load failed/i.test(ultimoErroCentral)?"sem conexão com a central":ultimoErroCentral)+")":navigator.onLine?"":" (sem internet)")+".";
@@ -889,13 +891,13 @@ function render(){
     return `<article class="entry">
       <div class="top"><h3>${esc(obraNome(r))}</h3><span class="rdo">RDO ${esc(r.rdo||"-")}</span></div>
       ${temCentral()?(r.central==="ok"?'<div><span class="pill ok">✓ Na central do supervisor</span></div>':r.central==="recusado"?`<div class="recusado"><span class="pill alert">✗ Não aceito pela central</span> ${esc(r.erroCentral||"")} Corrija a data (Editar) ou exclua este RDO.</div>`:'<div><span class="pill">⏳ Aguardando envio à central</span></div>'):""}
+      ${r.whatsappEm?`<div><span class="pill ok">✓ PDF enviado no WhatsApp ${esc(new Date(r.whatsappEm).toLocaleString("pt-BR",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"}))}</span></div>`:r.zapExigido?'<div><span class="pill alert">⚠ PDF ainda não enviado no WhatsApp</span></div>':""}
       <div class="meta">${esc(fmtData(r.data))} · ${esc(r.resp)} · <span class="num">${total(r)}</span> pessoas</div>
       ${r.ocor?'<div><span class="pill alert">Ocorrência</span></div>':""}
       <div class="body">${esc((r.ativ||"").split("\n")[0])}${(r.ativ||"").includes("\n")?" …":""}</div>
       ${th?`<div class="thumbs">${th}</div>`:""}
       <div class="tools">
-        <button class="btn wa" data-a="wa" data-f="pdf" data-id="${esc(r._id)}">Enviar PDF</button>
-        <button class="btn wa" data-a="wa" data-f="docx" data-id="${esc(r._id)}">Enviar Word</button>
+        <button class="btn wa" data-a="wa" data-f="pdf" data-id="${esc(r._id)}">Enviar PDF no WhatsApp</button>
         ${podeEditar(r)?`<button class="btn sec" data-a="ed" data-id="${esc(r._id)}">Editar</button>`:""}
         ${podeEditar(r)||(r.central==="recusado"&&doResponsavel(r))?`<button class="btn sec" data-a="del" data-id="${esc(r._id)}">Excluir</button>`:""}
       </div>

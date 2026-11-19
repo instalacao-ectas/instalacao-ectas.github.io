@@ -7,7 +7,7 @@
 <meta name="theme-color" content="#002B49">
 <link rel="icon" href="icon-192.png">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Montserrat:wght@300;400;500;600;700;800&display=swap">
-<link rel="stylesheet" href="style.css?v=26">
+<link rel="stylesheet" href="style.css?v=27">
 <style>
 /* Painel: filtros numa linha, indicadores, alertas, gráfico, resumo por obra, lista de RDOs */
 :root{--s1:#0073A8;--s2:#D08A1E;--s3:#2BA39B;--s4:#8A63B8;--grid:#E3E9EE;--warn:#B54708;--warn-bg:#FEF3E2}
@@ -164,8 +164,9 @@ tbody tr:hover{background:var(--chip)}
         <span>Marque os RDOs que deseja excluir.</span>
         <span class="topo-botoes"><button type="button" class="btn perigo-cheio" id="b-rdo-sel" disabled>Excluir selecionados (0)</button><button type="button" class="btn sec" id="b-rdo-cancelar">Cancelar</button></span>
       </div>
+      <div class="aviso-pdf" id="aviso-pdf" hidden><span id="aviso-pdf-txt"></span><button type="button" class="btn pri" id="b-pdf-faltam">Gerar os PDFs que faltam</button></div>
       <div class="msg" id="msg-rdo" role="status"></div>
-      <div class="tabela"><table id="tab-rdo"><thead><tr><th class="col-sel" hidden><input type="checkbox" id="rdo-todas" aria-label="Marcar todos"></th><th>Data</th><th>Obra</th><th class="n">RDO</th><th>Responsável</th><th class="n">Efetivo</th><th>Tempo</th><th class="n">Fotos</th><th>Ocorrência</th></tr></thead><tbody id="t-rdos"></tbody></table></div>
+      <div class="tabela"><table id="tab-rdo"><thead><tr><th class="col-sel" hidden><input type="checkbox" id="rdo-todas" aria-label="Marcar todos"></th><th>Data</th><th>Obra</th><th class="n">RDO</th><th>Responsável</th><th class="n">Efetivo</th><th>Tempo</th><th class="n">Fotos</th><th>Ocorrência</th><th>PDF</th><th>WhatsApp</th></tr></thead><tbody id="t-rdos"></tbody></table></div>
       <div class="msg" id="msg" role="status"></div>
     </section>
 
@@ -247,12 +248,12 @@ tbody tr:hover{background:var(--chip)}
     </section>
   </div>
 </div>
-  <p class="status" id="versao-painel" style="margin-top:8px">Versão do painel: 28/10/2026 21:45</p>
+  <p class="status" id="versao-painel" style="margin-top:8px">Versão do painel: 19/11/2026 13:00</p>
 </main>
 
 <div class="modal" id="modal" hidden><div class="box" id="modal-box"></div></div>
 
 <script src="config.js?v=10"></script>
-<script src="supervisor.js?v=30"></script>
+<script src="supervisor.js?v=31"></script>
 </body>
 </html>
