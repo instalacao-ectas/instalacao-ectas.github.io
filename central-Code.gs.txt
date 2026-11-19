@@ -20,14 +20,16 @@ const COLUNAS = [
   "hini", "hfim", "clima_manha", "clima_tarde",
   "lider", "montador", "auxiliar", "outros", "total",
   "ativ", "equip", "mat", "ocor", "obs",
-  "n_fotos", "fotos", "pasta_fotos", "salvo_no_celular", "pdf", "usuario", "whatsapp", "assinatura"
+  "n_fotos", "fotos", "pasta_fotos", "salvo_no_celular", "pdf", "usuario", "whatsapp", "assinatura",
+  "h_int", "h_des", "h_pre", "h_imp", "h_mot"
 ];
 const TITULOS = [
   "Código interno", "Recebido em", "ID", "Obra", "Local", "Data", "Nº RDO", "Responsável",
   "Início", "Fim", "Tempo manhã", "Tempo tarde",
   "Líder", "Montador", "Auxiliar", "Outros", "Total efetivo",
   "Atividades executadas", "Equipamentos", "Materiais recebidos", "Ocorrências", "Observações",
-  "Nº de fotos", "Fotos (id e legenda)", "Pasta das fotos", "Salvo no celular em", "PDF do RDO", "Usuário (login)", "Enviado no WhatsApp em", "Assinatura (arquivo)"
+  "Nº de fotos", "Fotos (id e legenda)", "Pasta das fotos", "Salvo no celular em", "PDF do RDO", "Usuário (login)", "Enviado no WhatsApp em", "Assinatura (arquivo)",
+  "Intervalo (h)", "Deslocamento (h)", "Preparação (h)", "Improdutivo (h)", "Motivo improdutivo"
 ];
 
 function definirSenha_(nova) {
@@ -122,6 +124,8 @@ function lerLinha_(sh, linha) {
   return o;
 }
 
+// horas da hora técnica: número com até 2 casas, ou vazio quando o app não mandou
+function horaNum_(v) { if (v == null || String(v).trim() === "") return ""; const n = parseFloat(String(v).replace(",", ".")); return isNaN(n) || n < 0 ? "" : Math.round(n * 100) / 100; }
 function limpa_(s, max) { return String(s == null ? "" : s).slice(0, max || 5000); }
 
 /* ---------- App de campo envia ---------- */
@@ -199,7 +203,10 @@ function salvarRdo_(r, u) {
     pdf: antigo ? antigo.pdf : "",
     usuario: u.login,
     whatsapp: limpa_(r.whatsappEm, 40) || (antigo ? antigo.whatsapp : ""),
-    assinatura: antigo ? antigo.assinatura : ""
+    assinatura: antigo ? antigo.assinatura : "",
+    // hora técnica (vazio nos RDOs feitos antes desta versão do app)
+    h_int: horaNum_(r.h_int), h_des: horaNum_(r.h_des), h_pre: horaNum_(r.h_pre), h_imp: horaNum_(r.h_imp),
+    h_mot: limpa_(r.h_mot, 60)
   };
   const valores = [COLUNAS.map(c => reg[c])];
   if (linha) sh.getRange(linha, 1, 1, COLUNAS.length).setValues(valores);

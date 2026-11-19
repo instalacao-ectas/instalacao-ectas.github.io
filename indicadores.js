@@ -50,6 +50,46 @@ function horasRdo(r){
   let h=(b-a)/60;if(h>6)h-=1;return h;
 }
 const hh=r=>{const h=horasRdo(r);return h==null?0:h*r.total;};
+/* hora técnica lançada no RDO (app de 19/11/2026 em diante) */
+const hn=v=>parseFloat(String(v??"").replace(",","."))||0;
+const temHT=r=>r.h_int!==""&&r.h_int!=null;
+function ht(r){
+  const p=v=>{const m=/^(\d{1,2}):(\d{2})/.exec(hora(v));return m?(+m[1])+(+m[2])/60:null;};
+  const a=p(r.hini),b=p(r.hfim),ef=r.total;
+  const jor=(a!=null&&b!=null&&b>a)?Math.max(0,b-a-hn(r.h_int)):0;
+  const des=hn(r.h_des),pre=hn(r.h_pre),imp=hn(r.h_imp),exe=Math.max(0,jor-des-pre-imp);
+  return {hh:ef*jor,exe:ef*exe,des:ef*des,pre:ef*pre,imp:ef*imp};
+}
+function somaHT(L){const z={n:0,hh:0,exe:0,des:0,pre:0,imp:0};L.forEach(r=>{const h=ht(r);z.n++;["hh","exe","des","pre","imp"].forEach(k=>z[k]+=h[k]);});return z;}
+function renderHT(L){
+  const C=L.filter(temHT),sem=L.length-C.length,box=$("ht-corpo");
+  if(!C.length){box.innerHTML=`<p class="vazio-msg">Nenhum RDO com hora técnica no período${L.length?" ("+plural(L.length,"RDO sem hora técnica","RDOs sem hora técnica")+": feitos antes da atualização do app ou ainda não enviados)":""}.</p>`;return;}
+  const T=somaHT(C),p=(a,b)=>b?Math.round(100*a/b)+"%":"–",f1=v=>nf(v,1);
+  const cat=[["Execução",T.exe,"--ok"],["Deslocamento",T.des,"--s1"],["Preparação",T.pre,"--s4"],["Improdutivo",T.imp,"--falta"]];
+  const mot={};C.forEach(r=>{const h=ht(r);if(h.imp>0){const k=String(r.h_mot||"").trim()||"Sem motivo informado";mot[k]=(mot[k]||0)+h.imp;}});
+  const M=Object.entries(mot).sort((a,b)=>b[1]-a[1]),mm=Math.max(1,...M.map(x=>x[1]));
+  const g={};C.forEach(r=>{const k=obraChave(r);(g[k]=g[k]||[]).push(r);});
+  const O=Object.entries(g).map(([k,v])=>[k,somaHT(v)]).sort((a,b)=>b[1].hh-a[1].hh);
+  const gr={};C.forEach(r=>{const k=String(r.resp||"").trim()||"—";(gr[k]=gr[k]||[]).push(r);});
+  const P=Object.entries(gr).map(([k,v])=>[k,somaHT(v)]).sort((a,b)=>b[1].hh-a[1].hh);
+  const tab=(rot,lin,nome)=>`<div class="tabela"><table><thead><tr><th>${rot}</th><th class="n">RDOs</th><th class="n">Homem-hora</th><th class="n">HH execução</th><th class="n">% produtivo</th><th class="n">HH improdutivo</th></tr></thead><tbody>${lin.map(([k,z])=>`<tr><td><b>${esc(nome(k))}</b></td><td class="n">${z.n}</td><td class="n">${f1(z.hh)}</td><td class="n">${f1(z.exe)}</td><td class="n">${p(z.exe,z.hh)}</td><td class="n">${f1(z.imp)}</td></tr>`).join("")}</tbody></table></div>`;
+  box.innerHTML=`
+  <div class="ht-kpis">
+    <div>Homem-hora<b>${f1(T.hh)}</b>${plural(T.n,"RDO","RDOs")}</div>
+    <div>HH execução<b>${f1(T.exe)}</b></div>
+    <div>% produtivo<b>${p(T.exe,T.hh)}</b></div>
+    <div>HH deslocamento<b>${f1(T.des)}</b>${p(T.des,T.hh)} do total</div>
+    <div>HH preparação<b>${f1(T.pre)}</b>${p(T.pre,T.hh)} do total</div>
+    <div>HH improdutivo<b>${f1(T.imp)}</b>${p(T.imp,T.hh)} do total</div>
+  </div>
+  ${sem?`<p class="sub" style="margin:0">${plural(sem,"RDO do período está","RDOs do período estão")} sem hora técnica e ${sem===1?"fica":"ficam"} fora destas contas.</p>`:""}
+  <div class="ht-cols">
+    <div><h3>Onde foram as horas</h3>${cat.map(([n,v,c])=>`<div class="ht-bar"><span>${n}</span><span class="t"><i style="width:${T.hh?100*v/T.hh:0}%;background:var(${c})"></i></span><span class="num">${f1(v)} · ${p(v,T.hh)}</span></div>`).join("")}</div>
+    <div><h3>Motivos de improdutivo</h3>${M.length?M.map(([k,v])=>`<div class="ht-bar"><span>${esc(k)}</span><span class="t"><i style="width:${100*v/mm}%;background:var(--falta)"></i></span><span class="num">${f1(v)} HH</span></div>`).join(""):'<p class="sub" style="margin:0">Nenhuma hora improdutiva no período.</p>'}</div>
+  </div>
+  <h3 style="margin:4px 0 0;font-size:.78rem;color:var(--muted)">Por obra</h3>${tab("Obra",O,nomeObra)}
+  <h3 style="margin:4px 0 0;font-size:.78rem;color:var(--muted)">Por encarregado</h3>${tab("Encarregado",P,k=>k)}`;
+}
 const temOcor=r=>!!String(r.ocor||"").trim();
 const chuva=r=>ruim(r.clima_manha)||ruim(r.clima_tarde);
 const diaPreench=r=>diaSP(r.salvo_no_celular)||diaSP(r.recebido_em);
@@ -202,6 +242,7 @@ function render(){
     kpi("Dias com chuva",nf(R.diasChuva),"obra-dia com chuva ou impraticável",vari(R.diasChuva,A.diasChuva,false))+
     kpi("Ocorrências",nf(R.ocor),R.ocor?`${R.abertas} aberta${R.abertas===1?"":"s"}`:"nenhuma no período",vari(R.ocor,A.ocor,false))+
     kpi("Preenchidos no mesmo dia",md==null?"–":md+"%",R.comData?`${R.mesmoDia} de ${R.comData} RDOs`:"",vari(md,mdA,true," p.p."));
+  renderHT(filtrar(de,ate));
   renderObras(R);const deS=somaDias(ate,-83);renderSemanas(filtrar(deS,ate),deS,ate);
   const nAb=R.abertas;$("n-ocor").hidden=!nAb;$("n-ocor").textContent=nAb;
   if(S.aba==="obra")renderFicha();if(S.aba==="ocor")renderOcor();

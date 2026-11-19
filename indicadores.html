@@ -51,6 +51,13 @@ tbody tr.clic:hover{background:var(--chip)}
 .barra .t{flex:1;height:8px;border-radius:999px;background:var(--neutro);overflow:hidden;display:flex}
 .barra .t i{display:block;height:100%}
 .barra b{font-size:.8rem;font-variant-numeric:tabular-nums;min-width:38px;text-align:right}
+.ht-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px}
+.ht-kpis div{background:var(--neutro);border-radius:10px;padding:8px 10px;font-size:.75rem;font-weight:600;color:var(--muted)}
+.ht-kpis b{display:block;font-size:1.2rem;color:var(--fg);font-variant-numeric:tabular-nums}
+.ht-cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px}
+.ht-cols h3{margin:0 0 6px;font-size:.78rem;color:var(--muted);font-weight:700}
+.ht-bar{display:grid;grid-template-columns:8.5rem minmax(0,1fr) auto;gap:8px;align-items:center;font-size:.82rem;margin:4px 0}
+.ht-bar .t{height:9px;border-radius:999px;background:var(--neutro);overflow:hidden}.ht-bar .t i{display:block;height:100%}
 .legenda{display:flex;gap:14px;flex-wrap:wrap;font-size:.78rem;color:var(--muted)}
 .legenda i{display:inline-block;width:11px;height:11px;border-radius:3px;margin-right:5px;vertical-align:-1px}
 .chart{position:relative;overflow-x:auto}
@@ -171,6 +178,11 @@ tbody tr.clic:hover{background:var(--chip)}
 
     <section id="a-geral" style="display:flex;flex-direction:column;gap:14px">
       <div class="kpis" id="kpis"></div>
+      <section class="card" id="c-ht">
+        <h2>Hora técnica</h2>
+        <p class="sub">Homem-hora lançado pelos técnicos no RDO: efetivo × horas, separado em execução, deslocamento, preparação e improdutivo.</p>
+        <div id="ht-corpo"></div>
+      </section>
       <section class="card">
         <h2>Situação por obra</h2>
         <p class="sub">Dias úteis (segunda a sexta) com RDO no período. Clique numa obra para abrir a ficha.</p>
@@ -234,6 +246,6 @@ tbody tr.clic:hover{background:var(--chip)}
 <div class="modal" id="modal" hidden><div class="box" id="modal-box"></div></div>
 
 <script src="config.js?v=8"></script>
-<script src="indicadores.js?v=2" defer></script>
+<script src="indicadores.js?v=3" defer></script>
 </body>
 </html>

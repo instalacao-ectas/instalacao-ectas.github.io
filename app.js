@@ -1,10 +1,11 @@
 (function(){
 "use strict";
-const VERSAO="19/11/2026 13:00";
+const VERSAO="19/11/2026 17:30";
 const $=id=>document.getElementById(id);
 const CLIMAS=["☀️ Bom","⛅ Nublado","🌧️ Chuva","⛈️ Impraticável"];
 const MO=[["m_lid","Líder"],["m_mon","Montador"],["m_aux","Auxiliar"],["m_out","Outros"]];
-const FIELDS=["idobra","obra","local","data","rdo","resp","hini","hfim","ativ","equip","mat","ocor","obs",...MO.map(m=>m[0])];
+const HT=["h_int","h_des","h_pre","h_imp","h_mot"];
+const FIELDS=["idobra","obra","local","data","rdo","resp","hini","hfim","ativ","equip","mat","ocor","obs",...MO.map(m=>m[0]),...HT];
 const clima={manha:"",tarde:""};
 let registros=[], editId=null, fotos=[], envio=null, assinatura="";
 
@@ -39,6 +40,18 @@ function hoje(){const d=new Date();d.setMinutes(d.getMinutes()-d.getTimezoneOffs
 function fmtData(s){if(!s)return"";const[y,m,d]=s.split("-");const dias=["domingo","segunda","terça","quarta","quinta","sexta","sábado"];return `${d}/${m}/${y} (${dias[new Date(+y,+m-1,+d).getDay()]})`;}
 function esc(s){const d=document.createElement("div");d.textContent=s==null?"":String(s);return d.innerHTML;}
 function total(r){return MO.reduce((s,[k])=>s+(parseInt(r[k])||0),0);}
+/* ---------- hora técnica (homem-hora) ---------- */
+function hnum(v){return parseFloat(String(v??"").replace(",","."))||0;}
+function hmin(t){const m=/^(\d{1,2}):(\d{2})/.exec(String(t||""));return m?(+m[1])+(+m[2])/60:null;}
+const temHT=r=>r&&r.h_int!=null&&String(r.h_int)!=="";
+function horas(r){
+  const i=hmin(r.hini),f=hmin(r.hfim),ef=total(r);
+  const jor=(i!=null&&f!=null&&f>i)?Math.max(0,f-i-hnum(r.h_int)):0;
+  const des=hnum(r.h_des),pre=hnum(r.h_pre),imp=hnum(r.h_imp),exe=Math.max(0,jor-des-pre-imp);
+  return {ef,jor,des,pre,imp,exe,hh:ef*jor,hhExe:ef*exe,hhDes:ef*des,hhPre:ef*pre,hhImp:ef*imp,pp:jor?exe/jor:0,estouro:des+pre+imp>jor+1e-9};
+}
+const fh=n=>n.toFixed(1).replace(".",",");
+function htTexto(r,sep){const H=horas(r);return "Homem-hora: "+fh(H.hh)+sep+"Execução: "+fh(H.hhExe)+sep+"Deslocamento: "+fh(H.hhDes)+sep+"Preparação: "+fh(H.hhPre)+sep+"Improdutivo: "+fh(H.hhImp)+(H.imp>0&&r.h_mot?" ("+r.h_mot+")":"")+sep+Math.round(H.pp*100)+"% produtivo";}
 function linhas(t){return (t||"").split(/\n+/).map(s=>s.trim()).filter(Boolean).map(s=>"- "+s.replace(/^[-•*]\s*/,"")).join("\n");}
 const semIcone=t=>(t||"").replace(/^[^\p{L}]+/u,"");
 function nomeArq(base,ext){return (base.normalize("NFD").replace(/[̀-ͯ]/g,"").replace(/[^\w\- ]+/g,"").trim().replace(/\s+/g,"_")||"diario")+"."+ext;}
@@ -92,6 +105,7 @@ function lerForm(){
 function preencher(r){
   FIELDS.forEach(f=>$(f).value=r[f]||"");
   if(!$("hini").value)$("hini").value="07:00";if(!$("hfim").value)$("hfim").value="17:00";
+  if(!temHT(r))$("h_int").value="1";
   clima.manha=r.clima_manha||"";clima.tarde=r.clima_tarde||"";
   fotos=(r.fotos||[]).filter(f=>f&&f.blob).map(f=>({blob:f.blob,desc:f.desc||"",url:URL.createObjectURL(f.blob)}));
   paintClima();renderFotos();
@@ -99,7 +113,12 @@ function preencher(r){
 }
 let tSalvar=null;
 function update(){
-  $("mtot").textContent=total(lerForm());mostrarBotaoCopiar();
+  const fr=lerForm();$("mtot").textContent=total(fr);mostrarBotaoCopiar();
+  const H=horas(fr);$("hx_exe").textContent=fh(H.exe)+" h";$("hx_hh").textContent=fh(H.hh);$("hx_pp").textContent=H.jor?Math.round(H.pp*100)+"%":"–";
+  const av=$("hx_av");
+  if(H.estouro){av.hidden=false;av.textContent="Deslocamento + preparação + improdutivo passou da jornada do dia ("+fh(H.jor)+" h). Confira as horas.";}
+  else if(H.imp>0&&!fr.h_mot){av.hidden=false;av.textContent="Escolha o motivo do improdutivo.";}
+  else av.hidden=true;
   clearTimeout(tSalvar);tSalvar=setTimeout(()=>{draftPut({...lerForm(),editId}).catch(()=>{});},400);
 }
 function validar(){
@@ -111,6 +130,9 @@ function validar(){
   if(!$("resp").value.trim())falta.push("responsável");
   if(!$("ativ").value.trim())falta.push("atividades executadas");
   if(falta.length){msg("Preencha: "+falta.join(", ")+".",true);return false;}
+  {const fr=lerForm(),H=horas(fr);
+   if(H.estouro){msg("Hora técnica: deslocamento + preparação + improdutivo passou da jornada do dia ("+fh(H.jor)+" h). Confira as horas.",true);$("h_des").focus();return false;}
+   if(H.imp>0&&!fr.h_mot){msg("Hora técnica: escolha o motivo do improdutivo.",true);$("h_mot").focus();return false;}}
   if(!assinatura){msg("Assine o RDO no campo Assinatura do encarregado (no fim do formulário).",true);$("ass-box").classList.add("err");$("ass-box").scrollIntoView({behavior:"smooth",block:"center"});return false;}
   const dup=rdoDoDiaLocal($("idobra").value,$("data").value,editId);
   if(dup){msg("Já existe o RDO nº "+(dup.rdo||"-")+" desta obra em "+fmtData(dup.data)+" ("+(dup.resp||"")+"), salvo neste celular. Só pode haver um RDO por obra em cada dia. Para corrigir, edite o RDO existente no Histórico.",true);$("data").focus();return false;}
@@ -129,7 +151,7 @@ async function verificarDiaCentral(r,uid){
   }catch(e){return null;}   // sem resposta: a central confere de novo no envio
 }
 function limpar(){
-  FIELDS.forEach(f=>{if(!["resp","idobra","obra","local","hini","hfim"].includes(f))$(f).value="";});
+  FIELDS.forEach(f=>{if(!["resp","idobra","obra","local","hini","hfim"].includes(f))$(f).value="";});$("h_int").value="1";
   $("data").value=hoje();clima.manha="";clima.tarde="";editId=null;fotos=[];renderFotos();paintClima();definirAssinatura("");update();
 }
 $("f").addEventListener("input",update);
@@ -574,7 +596,9 @@ function textoCompleto(r){
   L.push("*Responsável:* "+(r.resp||"-"),"");
   L.push("*Tempo:* manhã "+(semIcone(r.clima_manha)||"não informado")+" | tarde "+(semIcone(r.clima_tarde)||"não informado"));
   const mo=MO.filter(([k])=>parseInt(r[k])>0).map(([k,n])=>n+" "+parseInt(r[k]));
-  L.push("*Efetivo:* "+total(r)+" pessoas"+(mo.length?" ("+mo.join(", ")+")":""),"");
+  L.push("*Efetivo:* "+total(r)+" pessoas"+(mo.length?" ("+mo.join(", ")+")":""));
+  if(temHT(r)&&horas(r).hh>0)L.push("*Hora técnica:* "+htTexto(r," · "));
+  L.push("");
   L.push("*Atividades executadas:*",linhas(r.ativ)||"-");
   if(r.equip)L.push("","*Equipamentos:*",linhas(r.equip));
   if(r.mat)L.push("","*Materiais recebidos:*",linhas(r.mat));
@@ -648,6 +672,7 @@ async function gerarPdf(lst){
     secao("Mão de obra",r);
     const mo=MO.filter(([k])=>parseInt(r[k])>0).map(([k,nm])=>nm+": "+parseInt(r[k]));
     bloco("Total: "+total(r)+" pessoas"+(mo.length?"  ("+mo.join(" · ")+")":""),r);
+    if(temHT(r)&&horas(r).hh>0){secao("Hora técnica",r);bloco(htTexto(r,"  ·  "),r);}
     secao("Atividades executadas",r);bloco(linhas(r.ativ),r);
     if(r.equip){secao("Equipamentos utilizados",r);bloco(linhas(r.equip),r);}
     if(r.mat){secao("Materiais recebidos",r);bloco(linhas(r.mat),r);}
@@ -725,6 +750,7 @@ async function gerarDocx(r){
   const mo=MO.filter(([k])=>parseInt(r[k])>0).map(([k,nm])=>nm+": "+parseInt(r[k]));
   const corpo=[cab,faixa,secao("Identificação"),ident,
     secao("Mão de obra"),p(t("Total: "+total(r)+" pessoas"+(mo.length?"  ("+mo.join(" · ")+")":""))),
+    ...(temHT(r)&&horas(r).hh>0?[secao("Hora técnica"),p(t(htTexto(r,"  ·  ")))]:[]),
     secao("Atividades executadas"),...texto(r.ativ)];
   if(r.equip)corpo.push(secao("Equipamentos utilizados"),...texto(r.equip));
   if(r.mat)corpo.push(secao("Materiais recebidos"),...texto(r.mat));
@@ -945,6 +971,8 @@ $("b-xlsx").onclick=async()=>{
     const rows=lst.map(r=>{
       const o={"ID":r.idobra||"","Obra":r.obra,"Local":r.local||"","RDO":parseInt(r.rdo)||r.rdo,"Data":fmtData(r.data),"Responsável":r.resp,"Início":r.hini,"Fim":r.hfim,"Tempo manhã":semIcone(r.clima_manha),"Tempo tarde":semIcone(r.clima_tarde)};
       MO.forEach(([k,n])=>o[n]=parseInt(r[k])||0);
+      o["Total efetivo"]=total(r);
+      if(temHT(r)){const H=horas(r),r2=x=>+x.toFixed(2);Object.assign(o,{"Jornada (h)":r2(H.jor),"Intervalo (h)":hnum(r.h_int),"Deslocamento (h)":H.des,"Preparação (h)":H.pre,"Improdutivo (h)":H.imp,"Motivo improdutivo":r.h_mot||"","Execução (h)":r2(H.exe),"Homem-hora":r2(H.hh),"HH execução":r2(H.hhExe),"HH deslocamento":r2(H.hhDes),"HH preparação":r2(H.hhPre),"HH improdutivo":r2(H.hhImp),"% produtivo":H.jor?Math.round(H.pp*100):""});}
       Object.assign(o,{"Total efetivo":total(r),"Atividades executadas":r.ativ,"Equipamentos":r.equip,"Materiais recebidos":r.mat,"Ocorrências":r.ocor,"Observações":r.obs,
         "Fotos (legendas)":(r.fotos||[]).map((f,i)=>(i+1)+". "+(f.desc||"sem legenda")).join("\n")});
       return o;

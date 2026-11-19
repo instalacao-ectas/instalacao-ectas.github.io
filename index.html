@@ -11,7 +11,7 @@
 <link rel="icon" href="icon-192.png">
 <link rel="apple-touch-icon" href="icon-192.png">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Montserrat:wght@300;400;500;600;700;800&display=swap">
-<link rel="stylesheet" href="style.css?v=23">
+<link rel="stylesheet" href="style.css?v=27">
 <style>.troca-app{background:#002B49;border-top:1px solid rgba(255,255,255,.12)}.troca-app .troca-wrap{display:flex;gap:6px;padding-block:8px}.troca-app a{flex:1;text-align:center;padding:9px 8px;border-radius:999px;color:#FFFFFF;background:rgba(255,255,255,.10);font:700 13.5px "Montserrat",Arial,sans-serif;text-decoration:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:300px}.troca-app a[aria-current="page"]{background:#66D3CD;color:#002B49}.troca-app a:focus-visible{outline:3px solid #66D3CD;outline-offset:2px}</style>
 </head>
 <body>
@@ -130,6 +130,25 @@
       </div>
       <div class="total">Total no dia: <b class="num" id="mtot">0</b> pessoas</div>
     </fieldset>
+    <fieldset>
+      <legend>Hora técnica</legend>
+      <div class="total">Horas do dia em decimal (1,5 = 1h30). A execução e o homem-hora são calculados sozinhos.</div>
+      <div class="row">
+        <label>Intervalo / almoço (h)<input id="h_int" type="number" min="0" step="0.5" inputmode="decimal" class="num" value="1"></label>
+        <label>Deslocamento (h)<input id="h_des" type="number" min="0" step="0.5" inputmode="decimal" class="num" placeholder="0"></label>
+        <label>Preparação / setup (h)<input id="h_pre" type="number" min="0" step="0.5" inputmode="decimal" class="num" placeholder="0"></label>
+        <label>Improdutivo (h)<input id="h_imp" type="number" min="0" step="0.5" inputmode="decimal" class="num" placeholder="0"></label>
+      </div>
+      <label>Motivo do improdutivo
+        <select id="h_mot"><option value="">—</option><option>Chuva</option><option>Falta de material</option><option>Espera do cliente</option><option>Retrabalho</option><option>Equipamento parado</option><option>Outro</option></select>
+      </label>
+      <div class="hh-res">
+        <div>Execução<b id="hx_exe">0,0 h</b></div>
+        <div>Homem-hora do dia<b id="hx_hh">0,0</b></div>
+        <div>% produtivo<b id="hx_pp">–</b></div>
+      </div>
+      <div class="hh-aviso" id="hx_av" hidden></div>
+    </fieldset>
 
     <fieldset>
       <legend>Serviços do dia</legend>
@@ -212,6 +231,6 @@
 
 <script src="lib/jspdf.umd.min.js"></script>
 <script src="config.js?v=8"></script>
-<script src="app.js?v=23"></script>
+<script src="app.js?v=24"></script>
 </body>
 </html>
