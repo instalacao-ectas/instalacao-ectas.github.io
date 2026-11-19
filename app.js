@@ -520,9 +520,12 @@ async function postCentral(o){
 async function enviarCentral(r){
   const fs=(r.fotos||[]).filter(f=>f&&f.blob);
   const {fotos,...dados}=r;
-  await postCentral({acao:"salvar",rdo:{...dados,uid:r._id,n_fotos:fs.length}});
-  await enviarPdfCentral(r);           // o PDF vai logo depois dos dados, antes das fotos
+  const res=await postCentral({acao:"salvar",rdo:{...dados,uid:r._id,n_fotos:fs.length}});
+  // o PDF vai logo depois dos dados, antes das fotos (e só uma vez por versão do RDO)
+  if(r.centralPdf!=="ok"){await enviarPdfCentral(r);r.centralPdf="ok";await dbPut(r);}
+  const ja=new Set((res&&res.fotosRecebidas)||[]);   // fotos que já chegaram numa tentativa anterior
   for(let i=0;i<fs.length;i++){
+    if(ja.has(i))continue;
     const b64=(await blobToData(fs[i].blob)).split(",")[1];
     await postCentral({acao:"foto",uid:r._id,idx:i,desc:fs[i].desc||"",b64});
   }

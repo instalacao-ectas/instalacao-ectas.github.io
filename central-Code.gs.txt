@@ -215,7 +215,12 @@ function salvarRdo_(r, u) {
       sh.getRange(linha, COLUNAS.indexOf("assinatura") + 1).setValue(arq.getId());
     } catch (e) { }
   }
-  return { ok: true, uid: uid, novo: !antigo };
+  // fotos que já chegaram nesta rodada (o celular não precisa mandar de novo)
+  let recebidas = [];
+  const cacheR = CacheService.getScriptCache(), rodada = limpa_(r.salvoEm, 40);
+  if (cacheR.get("rodada_" + uid) !== rodada) { cacheR.remove("envio_" + uid); cacheR.put("rodada_" + uid, rodada, 21600); }   // RDO editado: começa a lista de novo
+  try { recebidas = JSON.parse(CacheService.getScriptCache().get("envio_" + uid) || "[]").map((f, i) => f ? i : -1).filter(i => i >= 0); } catch (e) { }
+  return { ok: true, uid: uid, novo: !antigo, fotosRecebidas: recebidas };
 }
 
 function dataIso_(v) {
@@ -276,6 +281,11 @@ function salvarFoto_(b) {
   lista[b.idx] = { id: arq.getId(), desc: limpa_(b.desc, 500) };
   cache.put(chave, JSON.stringify(lista), 21600);
   sh.getRange(linha, COLUNAS.indexOf("pasta_fotos") + 1).setValue(pastaObra.getUrl());
+  // primeiro envio: já registra as fotos na planilha, mesmo que o envio pare antes do fim
+  let antigas = []; try { antigas = JSON.parse(r.fotos || "[]"); } catch (e) { }
+  if (!antigas.length || antigas.every(f => lista.some(x => x && x.id === f.id))) {
+    sh.getRange(linha, COLUNAS.indexOf("fotos") + 1).setValue(JSON.stringify(lista.filter(Boolean)));
+  }
   return { ok: true, id: arq.getId() };
 }
 
@@ -910,16 +920,37 @@ function gerarPdfsFaltantes(espera) {
   }
   return { ok: true, gerados: gerados, faltam: faltam, erros: erros.slice(0, 3) };
 }
+// fotos que chegaram ao Drive mas não foram registradas (envio interrompido antes do fim)
+function recuperarFotos_(sh, linha, r, pastaObra) {
+  let lista = []; try { lista = JSON.parse(r.fotos || "[]").filter(f => f && f.id); } catch (e) { }
+  if (lista.length || !(Number(r.n_fotos) > 0)) return r;
+  const prefixo = "RDO " + r.rdo + " " + r.data + " foto ";
+  const achadas = {};
+  const it = pastaObra.searchFiles("title contains '" + prefixo.replace(/'/g, "\\'") + "' and trashed = false");
+  while (it.hasNext()) {
+    const f = it.next(), m = /foto (\d+)\.jpg$/.exec(f.getName());
+    if (!m || f.getName().indexOf(prefixo) !== 0) continue;
+    const k = Number(m[1]);
+    if (!achadas[k] || f.getDateCreated() > achadas[k].getDateCreated()) achadas[k] = f;
+  }
+  const nums = Object.keys(achadas).map(Number).sort((a, b) => a - b);
+  if (!nums.length) return r;
+  lista = nums.map(k => ({ id: achadas[k].getId(), desc: achadas[k].getDescription() || "" }));
+  sh.getRange(linha, COLUNAS.indexOf("fotos") + 1).setValue(JSON.stringify(lista));
+  r.fotos = JSON.stringify(lista);
+  return r;
+}
 function gerarPdfCentral_(uid) {
   const sh = aba_(), linha = linhaDoUid_(sh, uid);
   if (!linha) return { ok: false, erro: "RDO não encontrado" };
-  const r = lerLinha_(sh, linha);
+  let r = lerLinha_(sh, linha);
   const pastaObra = pastaDaObra_(r, pasta_(PASTA_RAIZ));
+  r = recuperarFotos_(sh, linha, r, pastaObra);
   const html = htmlRdo_(r);
   const obra = [String(r.idobra || "").trim(), String(r.obra || "").trim()].filter(String).join(" ");
   const nome = "RDO " + r.rdo + " - " + dataIso_(r.data) + " - " + obra + ".pdf";
   const pdf = Utilities.newBlob(html, "text/html", "rdo.html").getAs("application/pdf").setName(nome);
-  const arq = pastaObra.createFile(pdf);
+  const arq = pastaObra.createFile(pdf).setDescription("PDF montado pela central");
   // se o celular mandou o PDF enquanto isso, fica o do celular
   const atual = lerLinha_(sh, linha);
   if (atual.pdf) { arq.setTrashed(true); return { ok: true, id: atual.pdf, jaTinha: true }; }
@@ -980,4 +1011,22 @@ function htmlRdo_(r) {
     '<td><br><br><br><div class="linha">Fiscalização</div></td></tr></table>';
   h += '<div class="nota">PDF montado pela central do Diário de Obra ECTAS a partir dos dados recebidos do celular.</div>';
   return h + '</body></html>';
+}
+
+// refaz os PDFs que a própria central montou (por exemplo, depois de recuperar fotos)
+function refazerPdfsDaCentral() {
+  const sh = aba_(), n = sh.getLastRow();
+  if (n < 2) return;
+  const v = sh.getRange(2, 1, n - 1, COLUNAS.length).getValues(), iPdf = COLUNAS.indexOf("pdf");
+  v.forEach((l, i) => {
+    if (!l[iPdf]) return;
+    try {
+      const f = DriveApp.getFileById(String(l[iPdf]));
+      if (f.getDescription() !== "PDF montado pela central") return;
+      f.setTrashed(true);
+      sh.getRange(i + 2, iPdf + 1).setValue("");
+      const res = gerarPdfCentral_(String(l[0]));
+      Logger.log("RDO " + l[COLUNAS.indexOf("rdo")] + " obra " + l[2] + ": " + JSON.stringify(res));
+    } catch (e) { Logger.log("erro: " + e); }
+  });
 }
