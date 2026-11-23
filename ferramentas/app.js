@@ -4,6 +4,10 @@ const VERSAO="23/11/2026 11:00";
 const $=id=>document.getElementById(id);
 const CENTRAL=window.CENTRAL_FERRAMENTAS||{};
 const temCentral=()=>!!(CENTRAL.url&&CENTRAL.chave);
+/* se o site foi atualizado e esta página ainda é a versão anterior guardada no navegador, recarrega sozinha uma vez */
+(async()=>{try{const h=await fetch("index.html",{cache:"no-store"}).then(r=>r.text());const m=h.match(/app\.js\?v=(\d+)/);
+  if(m&&m[1]!=="4"){const k="fer-recarregou-app-"+m[1];if(!sessionStorage.getItem(k)){sessionStorage.setItem(k,"1");location.reload();}}}catch(e){}})();
+
 const TIPOS_CONF=["Retirada do kit","Devolução do kit","Conferência periódica"];
 const CONDS={ok:"Conforme",dan:"Danificada",man:"Em manutenção",falta:"Faltando"};
 const TIPOS_OC=["Quebra / defeito","Perda","Furto / roubo","Enviar para manutenção","Solicitar material do almoxarifado","Outro"];

@@ -14,6 +14,9 @@ const ST_OC={aberta:["Aberta","c-bad"],andamento:["Em andamento","c-warn"],resol
 const SIT={ativa:["Em uso","c-ok"],manutencao:["Em manutenção","c-warn"],baixada:["Baixada","c-mute"]};
 const GRUPOS={permanente:"Kit (permanente)",almox:"Almoxarifado",individual:"Individual"};
 
+/* se o site foi atualizado e esta página ainda é a versão anterior guardada no navegador, recarrega sozinha uma vez */
+(async()=>{try{const h=await fetch("supervisor.html",{cache:"no-store"}).then(r=>r.text());const m=h.match(/supervisor\.js\?v=(\d+)/);
+  if(m&&m[1]!=="4"){const k="fer-recarregou-sup-"+m[1];if(!sessionStorage.getItem(k)){sessionStorage.setItem(k,"1");location.reload();}}}catch(e){}})();
 let senha="",D=null;
 const S={tab:"painel",apF:"pendente",ocF:"abertas",uq:"",uKit:"",uOpen:null,arquivos:{},fotosConf:{}};
 
