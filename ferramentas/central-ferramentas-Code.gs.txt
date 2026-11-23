@@ -29,19 +29,19 @@ const REVALIDAR_MIN = 15;   // de quanto em quanto tempo a sessão é conferida 
 
 /* ---------- abas da planilha ---------- */
 const T = {
-  ferramentas: { aba: "Ferramentas", cols: ["id", "item", "descricao", "qtd", "grupo", "ativa"],
-    tit: ["ID", "Item", "Descrição", "Qtd fixa", "Grupo (permanente, almox ou individual)", "Ativa"] },
+  ferramentas: { aba: "Ferramentas", cols: ["id", "item", "descricao", "qtd", "grupo", "ativa", "foto", "exige_foto"],
+    tit: ["ID", "Item", "Descrição", "Qtd fixa", "Grupo (permanente, almox ou individual)", "Ativa", "Foto de cadastro (arquivo)", "Exige foto na conferência"] },
   kits: { aba: "Kits", cols: ["id", "nome", "responsavel", "local", "tecnicos", "ordem", "ativo"],
     tit: ["ID", "Kit", "Responsável", "Local / equipe", "Técnicos que podem conferir (logins)", "Ordem", "Ativo"] },
-  pecas: { aba: "Peças", cols: ["codigo", "ferramenta", "kit", "situacao", "criado_em", "obs"],
-    tit: ["Código", "ID ferramenta", "ID kit", "Situação (ativa, manutencao, baixada)", "Cadastrada em", "Observação"] },
+  pecas: { aba: "Peças", cols: ["codigo", "ferramenta", "kit", "situacao", "criado_em", "obs", "foto"],
+    tit: ["Código", "ID ferramenta", "ID kit", "Situação (ativa, manutencao, baixada)", "Cadastrada em", "Observação", "Foto de cadastro (arquivo)"] },
   tecnicos: { aba: "Técnicos", cols: ["login", "nome", "ativo", "hash", "sal", "versao"],
     tit: ["Usuário (login)", "Nome", "Ativo", "Senha (protegida)", "Sal", "Versão"] },
   conf: { aba: "Conferências", cols: ["uid", "recebido_em", "criado_em", "kit", "kit_nome", "tipo", "tecnico", "login", "local",
-      "lidas", "esperadas", "pendencias", "obs", "itens", "pecas", "alheias", "assinatura", "status", "comentario", "revisado_em"],
+      "lidas", "esperadas", "pendencias", "obs", "itens", "pecas", "alheias", "assinatura", "status", "comentario", "revisado_em", "fotos"],
     tit: ["Código interno", "Recebida em", "Feita em", "ID kit", "Kit", "Tipo", "Técnico", "Usuário", "Obra / local",
       "Etiquetas lidas", "Etiquetas esperadas", "Pendências", "Observações", "Itens (dados)", "Peças (dados)", "Peças de outro kit",
-      "Assinatura (arquivo)", "Situação", "Comentário do supervisor", "Revisada em"] },
+      "Assinatura (arquivo)", "Situação", "Comentário do supervisor", "Revisada em", "Fotos da conferência (dados)"] },
   oc: { aba: "Ocorrências", cols: ["uid", "recebido_em", "criado_em", "kit", "kit_nome", "tipo", "ferramenta", "ferramenta_desc", "codigo",
       "qtd", "descricao", "tecnico", "login", "foto", "status", "comentario", "atualizado_em"],
     tit: ["Código interno", "Recebida em", "Feita em", "ID kit", "Kit", "Tipo", "ID ferramenta", "Ferramenta", "Código da peça",
@@ -78,11 +78,22 @@ function aba_(t) {
     sh.setFrozenRows(1);
     sh.getRange(1, 1, Math.max(sh.getMaxRows(), 2), def.cols.length).setNumberFormat("@");
     if (t === "tecnicos") sh.hideColumns(4, 3);
-    if (t === "conf") { sh.hideColumns(1); sh.hideColumns(14, 2); }
+    if (t === "conf") { sh.hideColumns(1); sh.hideColumns(14, 2); sh.hideColumns(21); }
     if (t === "oc") sh.hideColumns(1);
+  } else if (!CAB_OK_[t]) {
+    // aba criada antes de colunas novas: completa o cabeçalho
+    const n = def.tit.length, atual = sh.getRange(1, 1, 1, n).getValues()[0];
+    if (String(atual[n - 1]) !== def.tit[n - 1]) {
+      if (sh.getMaxColumns() < n) sh.insertColumnsAfter(sh.getMaxColumns(), n - sh.getMaxColumns());
+      sh.getRange(1, 1, 1, n).setValues([def.tit]).setFontWeight("bold").setBackground("#002B49").setFontColor("#FFFFFF");
+      sh.getRange(1, 1, Math.max(sh.getMaxRows(), 2), n).setNumberFormat("@");
+      if (t === "conf") sh.hideColumns(n);
+    }
   }
+  CAB_OK_[t] = true;
   return sh;
 }
+const CAB_OK_ = {};
 
 function valor_(v) { return v instanceof Date ? v.toISOString() : v; }
 
@@ -124,7 +135,8 @@ function salvarArquivo_(b64, tipo, nome) {
 /* ---------- leitura em formato do app ---------- */
 function ferramentas_() {
   return ler_("ferramentas").map(f => ({ id: String(f.id).trim(), item: f.item === "" ? null : Number(f.item), desc: String(f.descricao),
-    qtd: Number(f.qtd) || 0, grupo: String(f.grupo || "permanente").trim().toLowerCase(), ativa: !/^n/i.test(String(f.ativa)) }));
+    qtd: Number(f.qtd) || 0, grupo: String(f.grupo || "permanente").trim().toLowerCase(), ativa: !/^n/i.test(String(f.ativa)),
+    foto: String(f.foto || ""), exigeFoto: /^s/i.test(String(f.exige_foto || "")) }));
 }
 function kits_() {
   return ler_("kits").map(k => ({ id: String(k.id).trim(), nome: String(k.nome), responsavel: String(k.responsavel || ""), local: String(k.local || ""),
@@ -133,14 +145,14 @@ function kits_() {
 }
 function pecas_() {
   return ler_("pecas").map(p => ({ codigo: String(p.codigo).trim(), ferramenta: String(p.ferramenta), kit: String(p.kit),
-    situacao: String(p.situacao || "ativa").trim().toLowerCase(), criado_em: String(p.criado_em || ""), obs: String(p.obs || "") }));
+    situacao: String(p.situacao || "ativa").trim().toLowerCase(), criado_em: String(p.criado_em || ""), obs: String(p.obs || ""), foto: String(p.foto || "") }));
 }
 function conf_(c) {
   return { uid: String(c.uid), recebido_em: String(c.recebido_em), criado_em: String(c.criado_em), kit: String(c.kit), kit_nome: String(c.kit_nome),
     tipo: String(c.tipo), tecnico: String(c.tecnico), login: String(c.login), local: String(c.local || ""), lidas: Number(c.lidas) || 0,
     esperadas: Number(c.esperadas) || 0, pendencias: Number(c.pendencias) || 0, obs: String(c.obs || ""), itens: jsonLer_(c.itens, {}),
     pecas: jsonLer_(c.pecas, {}), alheias: jsonLer_(c.alheias, []), assinatura: String(c.assinatura || ""), status: String(c.status || "pendente"),
-    comentario: String(c.comentario || ""), revisado_em: String(c.revisado_em || "") };
+    comentario: String(c.comentario || ""), revisado_em: String(c.revisado_em || ""), fotos: jsonLer_(c.fotos, []) };
 }
 function oc_(o) {
   return { uid: String(o.uid), recebido_em: String(o.recebido_em), criado_em: String(o.criado_em), kit: String(o.kit), kit_nome: String(o.kit_nome),
@@ -172,6 +184,7 @@ function doPost(e) {
   if (!u) return json_({ ok: false, erro: "sessao" });
   if (b.acao === "dados") return json_(dadosCampo_(u));
   if (b.acao === "meus") return json_(meus_(u));
+  if (b.acao === "fotoCadastro") return json_(fotoCadastroCampo_(String(b.id || "")));
   const lock = LockService.getScriptLock(); lock.waitLock(20000);
   try {
     if (b.acao === "conferencia") return json_(salvarConf_(b.conf || {}, u));
@@ -190,6 +203,15 @@ function dadosCampo_(u) {
     ferramentas: ferramentas_().filter(f => f.ativa),
     kits: kits.filter(k => k.ativo).map(k => ({ id: k.id, nome: k.nome, responsavel: k.responsavel, local: k.local, permitido: kitPermitido_(k, u) })),
     pecas: pecas_() };
+}
+
+// o técnico só pode baixar fotos de cadastro (de ferramenta ou de peça), nunca outros arquivos
+function fotoCadastroCampo_(id) {
+  if (!id) return { ok: false, erro: "sem foto" };
+  const permitida = ferramentas_().some(f => f.foto === id) || pecas_().some(p => p.foto === id);
+  if (!permitida) return { ok: false, erro: "foto não encontrada" };
+  try { const f = DriveApp.getFileById(id); return { ok: true, b64: Utilities.base64Encode(f.getBlob().getBytes()), tipo: f.getMimeType() }; }
+  catch (err) { return { ok: false, erro: "foto não encontrada" }; }
 }
 
 function meus_(u) {
@@ -212,12 +234,20 @@ function salvarConf_(c, u) {
   const criado = limpa_(c.criado_em, 40) || agora_();
   const ass = c.assinatura ? salvarArquivo_(c.assinatura, "image/jpeg",
     "Assinatura " + kit.nome + " " + criado.slice(0, 10) + " " + u.nome + ".jpg") : "";
+  // fotos das ferramentas (obrigatórias quando a ferramenta exige foto ou foi marcada danificada)
+  const fs = ferramentas_();
+  const fotos = (Array.isArray(c.fotos) ? c.fotos : []).slice(0, 80).filter(x => x && x.foto).map(x => {
+    const f = fs.find(t => t.id === String(x.ferramenta)) || { desc: "" };
+    const codigo = limpa_(x.codigo, 20), motivo = x.motivo === "danificada" ? "danificada" : "exige";
+    const arq = salvarArquivo_(x.foto, "image/jpeg", "Conferência " + kit.nome + " " + criado.slice(0, 10) + " " + (codigo || f.desc.slice(0, 30)) + " " + u.nome + ".jpg");
+    return { ferramenta: String(x.ferramenta || ""), codigo: codigo, motivo: motivo, arquivo: arq };
+  });
   gravar_("conf", {
     uid: uid, recebido_em: agora_(), criado_em: criado, kit: kit.id, kit_nome: kit.nome, tipo: limpa_(c.tipo, 60),
     tecnico: u.nome, login: u.login, local: limpa_(c.local, 120), lidas: Number(c.lidas) || 0, esperadas: Number(c.esperadas) || 0,
     pendencias: Number(c.pendencias) || 0, obs: limpa_(c.obs, 2000), itens: JSON.stringify(c.itens || {}).slice(0, 45000),
     pecas: JSON.stringify(c.pecas || {}).slice(0, 45000), alheias: JSON.stringify(c.alheias || []).slice(0, 5000),
-    assinatura: ass, status: "pendente", comentario: "", revisado_em: ""
+    assinatura: ass, status: "pendente", comentario: "", revisado_em: "", fotos: JSON.stringify(fotos).slice(0, 45000)
   });
   return { ok: true, uid: uid };
 }
@@ -424,6 +454,7 @@ function acaoSupervisor_(b) {
       case "ferramentaExcluir": return ferramentaExcluir_(String(b.id || ""));
       case "pecasCriar": return pecasCriar_(b);
       case "pecaSalvar": return pecaSalvar_(b.peca || {});
+      case "fotoCadastro": return fotoCadastro_(b);
       case "configSalvar": return salvarConfig_(b.config || {});
       case "emailTeste": return emailDiario(true);
       case "backupAgora": garantirGatilhoBackup_(); return backupSemanal();
@@ -473,8 +504,9 @@ function ferramentaSalvar_(f) {
   const todos = ler_("ferramentas");
   const atual = f.id ? todos.find(x => String(x.id) === String(f.id)) : null;
   const id = atual ? String(atual.id) : "f" + Date.now().toString(36);
+  const exige = f.exigeFoto === undefined ? (atual ? String(atual.exige_foto || "") : "") : (f.exigeFoto ? "Sim" : "");
   gravar_("ferramentas", { id: id, item: f.item === "" || f.item == null ? "" : Number(f.item), descricao: desc, qtd: Math.max(0, Number(f.qtd) || 0),
-    grupo: grupo, ativa: f.ativa === false ? "Não" : "Sim" }, atual ? atual._linha : 0);
+    grupo: grupo, ativa: f.ativa === false ? "Não" : "Sim", foto: atual ? String(atual.foto || "") : "", exige_foto: exige }, atual ? atual._linha : 0);
   return { ok: true, id: id };
 }
 function ferramentaExcluir_(id) {
@@ -497,8 +529,8 @@ function pecasCriar_(b) {
   if (!kits_().some(k => k.id === String(b.kit))) return { ok: false, erro: "Kit não encontrado." };
   const codigos = proximosCodigos_(n), quando = agora_();
   const sh = aba_("pecas"), ini = sh.getLastRow() + 1;
-  const linhas = codigos.map(c => [c, String(b.ferramenta), String(b.kit), "ativa", quando, ""]);
-  bloco_(sh, ini, linhas.length, 6).setNumberFormat("@").setValues(linhas);
+  const linhas = codigos.map(c => [c, String(b.ferramenta), String(b.kit), "ativa", quando, "", ""]);
+  bloco_(sh, ini, linhas.length, 7).setNumberFormat("@").setValues(linhas);
   return { ok: true, codigos: codigos };
 }
 function pecaSalvar_(p) {
@@ -509,6 +541,24 @@ function pecaSalvar_(p) {
   if (p.obs !== undefined) atual.obs = limpa_(p.obs, 300);
   gravar_("pecas", atual, atual._linha);
   return { ok: true };
+}
+
+// foto de cadastro de uma ferramenta (tipo "ferramenta", id) ou de uma peça (tipo "peca", id = código)
+function fotoCadastro_(b) {
+  const tipo = b.tipo === "peca" ? "pecas" : "ferramentas", chave = tipo === "pecas" ? "codigo" : "id";
+  const atual = ler_(tipo).find(x => String(x[chave]) === String(b.id));
+  if (!atual) return { ok: false, erro: tipo === "pecas" ? "Peça não encontrada." : "Ferramenta não encontrada." };
+  const antiga = String(atual.foto || "");
+  let nova = "";
+  if (!b.remover) {
+    if (!b.foto) return { ok: false, erro: "Escolha uma foto." };
+    const nome = tipo === "pecas" ? String(atual.codigo) : String(atual.descricao).slice(0, 60);
+    nova = salvarArquivo_(b.foto, "image/jpeg", "Cadastro - " + nome + ".jpg");
+  }
+  atual.foto = nova;
+  gravar_(tipo, atual, atual._linha);
+  if (antiga) { try { DriveApp.getFileById(antiga).setTrashed(true); } catch (e) { } }
+  return { ok: true, foto: nova };
 }
 
 /* ---------- configurações, aviso diário e cópia de segurança ---------- */
