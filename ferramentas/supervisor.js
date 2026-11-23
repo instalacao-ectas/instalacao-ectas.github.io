@@ -16,7 +16,7 @@ const GRUPOS={permanente:"Kit (permanente)",almox:"Almoxarifado",individual:"Ind
 
 /* se o site foi atualizado e esta página ainda é a versão anterior guardada no navegador, recarrega sozinha uma vez */
 (async()=>{try{const h=await fetch("supervisor.html",{cache:"no-store"}).then(r=>r.text());const m=h.match(/supervisor\.js\?v=(\d+)/);
-  if(m&&m[1]!=="4"){const k="fer-recarregou-sup-"+m[1];if(!sessionStorage.getItem(k)){sessionStorage.setItem(k,"1");location.reload();}}}catch(e){}})();
+  if(m&&m[1]!=="5"){const k="fer-recarregou-sup-"+m[1];if(!sessionStorage.getItem(k)){sessionStorage.setItem(k,"1");location.reload();}}}catch(e){}})();
 let senha="",D=null;
 const S={tab:"painel",apF:"pendente",ocF:"abertas",uq:"",uKit:"",uOpen:null,arquivos:{},fotosConf:{}};
 
@@ -353,8 +353,8 @@ function vCadastro(){
    <p class="mini" style="margin:0">Os técnicos entram com o mesmo usuário e senha do Diário de Obra. Para cadastrar, trocar senha ou desativar, use o Painel do Diário de Obra: vale para os dois aplicativos.</p>
    ${ts.length?`<div class="tablebox"><table><thead><tr><th>Usuário</th><th>Nome</th><th>Situação</th><th></th></tr></thead><tbody id="tecRows">${ts.map(t=>`<tr data-login="${esc(t.login)}"><td><code class="k">${esc(t.login)}</code></td><td>${esc(t.nome)}</td><td>${t.ativo?`<span class="chip c-ok">Ativo</span>`:`<span class="chip c-mute">Desativado</span>`}</td><td></td></tr>`).join("")}</tbody></table></div>`:`<div class="empty">Nenhum técnico cadastrado no Diário de Obra.</div>`}</div>
   <div class="card stack"><div class="row"><h3>Kits</h3><span class="spacer"></span><button type="button" class="btn small" id="addKit">Novo kit</button></div>
-   <div class="tablebox"><table><thead><tr><th>Kit</th><th>Responsável</th><th>Local / equipe</th><th>Técnicos liberados</th><th>Situação</th><th></th></tr></thead><tbody id="kitRows">
-   ${D.kits.map(k=>`<tr data-k="${k.id}"><td><b>${esc(k.nome)}</b></td><td>${esc(k.responsavel||"—")}</td><td>${esc(k.local||"—")}</td><td class="mini">${k.tecnicos.length?esc(k.tecnicos.map(l=>(ts.find(t=>t.login===l)||{}).nome||l).join(", ")):"Todos"}</td><td>${k.ativo?`<span class="chip c-ok">Ativo</span>`:`<span class="chip c-mute">Inativo</span>`}</td><td><button type="button" class="btn small" data-edkit>Editar</button></td></tr>`).join("")}
+   <div class="tablebox"><table><thead><tr><th>Kit</th><th>Responsável</th><th>Local / equipe</th><th>Técnicos autorizados</th><th>Situação</th><th></th></tr></thead><tbody id="kitRows">
+   ${D.kits.map(k=>`<tr data-k="${k.id}"><td><b>${esc(k.nome)}</b></td><td>${esc(k.responsavel||"—")}</td><td>${esc(k.local||"—")}</td><td class="mini">${k.tecnicos.length?esc(k.tecnicos.map(l=>(ts.find(t=>t.login===l)||{}).nome||l).join(", ")):`<span style="color:var(--bad)">Nenhum (ninguém acessa)</span>`}</td><td>${k.ativo?`<span class="chip c-ok">Ativo</span>`:`<span class="chip c-mute">Inativo</span>`}</td><td><button type="button" class="btn small" data-edkit>Editar</button></td></tr>`).join("")}
    </tbody></table></div></div>
   <div class="card stack"><div class="row"><h3>Ferramentas (${D.ferramentas.length})</h3><span class="spacer"></span><button type="button" class="btn small" id="addTool">Nova ferramenta</button></div>
    <div class="tablebox"><table><thead><tr><th>Foto</th><th class="num">Item</th><th>Descrição</th><th class="num">Qtd</th><th>Grupo</th><th>Situação</th><th title="O técnico precisa fotografar cada peça desta ferramenta na conferência">Exige foto</th><th></th></tr></thead><tbody id="toolRows">
@@ -385,7 +385,7 @@ function formKit(k){
   abrirModal(`<h3>${k?"Editar "+esc(k.nome):"Novo kit"}</h3><form id="fKit" class="stack" style="gap:12px">
    <div class="fields"><label class="field">Nome do kit<input id="kNome" value="${esc(k?k.nome:"KIT "+(D.kits.length+1))}"></label><label class="field">Ordem<input id="kOrdem" type="number" value="${k?k.ordem:D.kits.length+1}"></label></div>
    <div class="fields"><label class="field">Responsável<input id="kResp" value="${esc(k?k.responsavel:"")}" placeholder="Nome do técnico"></label><label class="field">Local / equipe<input id="kLocal" value="${esc(k?k.local:"")}"></label></div>
-   <div class="field"><span class="label">Técnicos que podem conferir (nenhum marcado = todos)</span>
+   <div class="field"><span class="label">Técnicos autorizados (só quem estiver marcado acessa o Controle de Ferramentas)</span>
     ${D.tecnicos.filter(t=>t.ativo||(k&&k.tecnicos.includes(t.login))).length?D.tecnicos.filter(t=>t.ativo||(k&&k.tecnicos.includes(t.login))).map(t=>`<label class="check"><input type="checkbox" data-tec="${esc(t.login)}" ${k&&k.tecnicos.includes(t.login)?"checked":""}> ${esc(t.nome)} (${esc(t.login)})</label>`).join(""):`<span class="mini">Cadastre os técnicos no Painel do Diário de Obra.</span>`}</div>
    <label class="check"><input type="checkbox" id="kAtivo" ${!k||k.ativo?"checked":""}> Ativo</label>
    <div class="msg" id="kMsg"></div>

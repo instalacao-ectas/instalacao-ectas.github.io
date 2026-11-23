@@ -1,12 +1,12 @@
 (function(){
 "use strict";
-const VERSAO="23/11/2026 11:00";
+const VERSAO="23/11/2026 17:00";
 const $=id=>document.getElementById(id);
 const CENTRAL=window.CENTRAL_FERRAMENTAS||{};
 const temCentral=()=>!!(CENTRAL.url&&CENTRAL.chave);
 /* se o site foi atualizado e esta página ainda é a versão anterior guardada no navegador, recarrega sozinha uma vez */
 (async()=>{try{const h=await fetch("index.html",{cache:"no-store"}).then(r=>r.text());const m=h.match(/app\.js\?v=(\d+)/);
-  if(m&&m[1]!=="4"){const k="fer-recarregou-app-"+m[1];if(!sessionStorage.getItem(k)){sessionStorage.setItem(k,"1");location.reload();}}}catch(e){}})();
+  if(m&&m[1]!=="5"){const k="fer-recarregou-app-"+m[1];if(!sessionStorage.getItem(k)){sessionStorage.setItem(k,"1");location.reload();}}}catch(e){}})();
 
 const TIPOS_CONF=["Retirada do kit","Devolução do kit","Conferência periódica"];
 const CONDS={ok:"Conforme",dan:"Danificada",man:"Em manutenção",falta:"Faltando"};
@@ -230,6 +230,15 @@ function render(){
   const m=$("main");
   if(!temCentral()){m.innerHTML=`<div class="banner">O aplicativo ainda não está ligado à central. Avise o supervisor.</div>`;return;}
   if(!S.dados){m.innerHTML=`<div class="empty">${navigator.onLine?"Carregando a lista de ferramentas…":"Sem internet. Abra o app com sinal pelo menos uma vez para baixar a lista de ferramentas."}</div>`;return;}
+  // acesso só com autorização do supervisor (técnico cadastrado em pelo menos um kit)
+  const lib=kitsMeus().length>0,sl=lerSessao();
+  try{localStorage.setItem("fer-liberado",lib?"1":"0");if(sl)localStorage.setItem("fer-liberado-usuario",sl.usuario);}catch(e){}
+  $("nav").hidden=!lib;
+  if(!lib){m.innerHTML=`<div class="stack" style="padding-top:12px"><div class="banner">🔒 <b>Acesso ao Controle de Ferramentas não liberado.</b><br>Você só pode usar este aplicativo depois que o supervisor cadastrar o seu nome em um kit de ferramentas.</div>
+    <p class="lead">Peça ao supervisor para abrir o painel em <b>Cadastro &gt; Kits</b>, clicar em <b>Editar</b> no kit que está com você e marcar o seu nome em <b>Técnicos autorizados</b>. Depois, abra este app de novo.</p>
+    <div class="row"><a class="btn primary" href="../">Voltar ao Diário de Obra</a><button type="button" class="btn" id="b-reverificar">Verificar de novo</button></div></div>`;
+    const b=$("b-reverificar");if(b)b.onclick=async()=>{b.disabled=true;b.textContent="Verificando…";await atualizarDados();render();};
+    return;}
   m.innerHTML=({conferir:vConferir,ocorrencia:vOcorrencia,meus:vMeus})[S.tab]();
   (after[S.tab]||(()=>{}))();
 }
@@ -271,7 +280,7 @@ function fotoCtl(d,chave,motivo){
 function refFotoBtn(t,u){const id=(u&&u.foto)||(t&&t.foto);return id?`<button type="button" class="linkbtn" data-ref="${esc(id)}" data-reft="${esc((u?u.codigo+" · ":"")+(t?t.desc:""))}">ver foto de cadastro</button>`:"";}
 function vConferir(){
   const ks=kitsMeus();
-  if(!ks.length)return `<div class="empty">Você não está liberado para conferir nenhum kit. Peça ao supervisor para incluir seu usuário no kit.</div>`;
+  if(!ks.length)return `<div class="empty">Você não está liberado para conferir nenhum kit. Peça ao supervisor para cadastrar seu nome no kit.</div>`;
   if(!S.draft||!ks.find(k=>k.id===S.draft.kitId))S.draft=novoRascunho(ks[0].id);
   const d=S.draft,M=modelo(d),temCod=M.rows.some(r=>!r.manual);
   const shown=M.rows.filter(r=>!S.filterPend||r.pend);
