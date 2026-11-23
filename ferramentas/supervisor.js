@@ -15,7 +15,7 @@ const SIT={ativa:["Em uso","c-ok"],manutencao:["Em manutenção","c-warn"],baixa
 const GRUPOS={permanente:"Kit (permanente)",almox:"Almoxarifado",individual:"Individual"};
 
 let senha="",D=null;
-const S={tab:"painel",apF:"pendente",ocF:"abertas",uq:"",uKit:"",uOpen:null,arquivos:{}};
+const S={tab:"painel",apF:"pendente",ocF:"abertas",uq:"",uKit:"",uOpen:null,arquivos:{},fotosConf:{}};
 
 /* ---------- central ---------- */
 async function post(corpo){
@@ -136,6 +136,10 @@ function recConf(c,sup){
   ${pend.length?`<div><span class="chip c-warn">${pend.length} pendência${pend.length>1?"s":""}</span>${listaLonga(pend.map(({t,it})=>`<li>${esc(t.desc)}: ${it.q}/${t.qtd} · ${CONDS[it.s]||it.s}${unitCodes(c,t.id)}</li>`))}</div>`:`<div><span class="chip c-ok">Kit completo</span></div>`}
   ${c.alheias&&c.alheias.length?`<div class="mini"><span class="chip c-warn">Peças de outro kit</span> ${c.alheias.map(x=>{const u=pecaBy(x);return `${esc(x)} (${esc((toolById(u&&u.ferramenta)||{}).desc||"")}, ${esc(kitName(u&&u.kit))})`;}).join("; ")}</div>`:""}
   ${c.obs?`<div class="mini"><b>Obs.:</b> ${esc(c.obs)}</div>`:""}
+  ${sup&&c.fotos&&c.fotos.length?(S.fotosConf[c.uid]?`<div class="stack" style="gap:6px"><b class="mini">📷 Fotos da conferência ao lado da foto de cadastro</b><div class="fotos-conf">${c.fotos.map(f=>{const t=toolById(f.ferramenta),cad=fotoCadastroDe(f.ferramenta,f.codigo);
+      return `<div class="fotopar"><div class="mini"><b>${esc(f.codigo||"")}</b> ${esc(t?t.desc:"")} ${f.motivo==="danificada"?`<span class="chip c-bad">Danificada</span>`:`<span class="chip c-info">Exige foto</span>`}</div>
+      <div class="lado"><figure><div class="ph">${arqImg(f.arquivo,"Foto da conferência")}</div>Na conferência</figure><figure><div class="ph">${cad?arqImg(cad,"Foto de cadastro"):`<span>Sem foto de cadastro</span>`}</div>Cadastro</figure></div></div>`;}).join("")}</div></div>`
+    :`<div><button type="button" class="btn small" data-vfotos="${esc(c.uid)}">📷 Ver ${c.fotos.length} foto${c.fotos.length>1?"s":""} da conferência</button></div>`):""}
   ${c.comentario?`<div class="mini"><b>Supervisor:</b> ${esc(c.comentario)} (${fmtDate(c.revisado_em)})</div>`:""}
   ${sup?`<div>${c.assinatura?(S.arquivos[c.assinatura]?`<img class="sigimg" alt="Assinatura de ${esc(c.tecnico)}" src="${S.arquivos[c.assinatura]}">`:`<button type="button" class="linkbtn" data-arq="${esc(c.assinatura)}">Ver assinatura</button>`):`<span class="mini">Sem assinatura</span>`}</div>
    <div class="row"><input placeholder="Comentário (opcional)" data-com style="flex:1;min-width:180px">${c.status!=="aprovada"?`<button type="button" class="btn ok small" data-ap="aprovada">Aprovar</button>`:""}${c.status!=="devolvida"?`<button type="button" class="btn bad small" data-ap="devolvida">Devolver ao técnico</button>`:""}</div>`:""}
@@ -147,11 +151,44 @@ function vAprov(){
   <div class="seg" id="apSeg">${[["pendente","Aguardando"],["aprovada","Aprovadas"],["devolvida","Devolvidas"],["todas","Todas"]].map(([k,l])=>`<button type="button" data-f="${k}" aria-pressed="${f===k}">${l}</button>`).join("")}</div>
   ${list.length?`<div class="list" id="apList">${list.map(c=>recConf(c,true)).join("")}</div>`:`<div class="empty">${f==="pendente"?"Nenhuma conferência aguardando aprovação.":"Nada nesta lista."}</div>`}</div>`;
 }
+/* ---------- fotos (cadastro e conferência) ---------- */
+function encolher(file,lado,qual){return new Promise((ok,no)=>{const img=new Image();img.onload=()=>{const s=Math.min(1,(lado||1280)/Math.max(img.width,img.height)),c=document.createElement("canvas");c.width=Math.round(img.width*s);c.height=Math.round(img.height*s);c.getContext("2d").drawImage(img,0,0,c.width,c.height);URL.revokeObjectURL(img.src);ok(c.toDataURL("image/jpeg",qual||.8));};img.onerror=no;img.src=URL.createObjectURL(file);});}
+const carregando={};
+async function baixarArq(id){if(!id||S.arquivos[id]||carregando[id])return;carregando[id]=1;
+  try{const r=await chamar("arquivo",{id});if(r.ok)S.arquivos[id]=`data:${r.tipo};base64,${r.b64}`;else S.arquivos[id]="x";}catch(e){S.arquivos[id]="x";}finally{delete carregando[id];}}
+// mostra a imagem se já foi baixada; senão um espaço que baixa ao abrir
+function arqImg(id,alt){if(!id)return `<span>Sem foto</span>`;const a=S.arquivos[id];if(a==="x")return `<span>Foto não encontrada</span>`;
+  return a?`<img src="${a}" alt="${esc(alt||"")}" data-zoom="${esc(id)}">`:`<span data-carregar="${esc(id)}">Carregando…</span>`;}
+async function carregarPendentes(){const ids=[...document.querySelectorAll("[data-carregar]")].map(e=>e.dataset.carregar);if(!ids.length)return;
+  for(const id of [...new Set(ids)])await baixarArq(id);render();}
+const fotoCadastroDe=(toolId,codigo)=>{const u=codigo&&pecaBy(codigo),t=toolById(toolId);return (u&&u.foto)||(t&&t.foto)||"";};
+document.addEventListener("click",e=>{const z=e.target.closest("[data-zoom]");if(!z||z.closest("#modal"))return;
+  abrirModal(`<div class="row"><b>Foto</b><span class="spacer"></span><button type="button" class="btn small" data-fechar>Fechar</button></div><img src="${S.arquivos[z.dataset.zoom]}" alt="" style="width:100%;border-radius:10px">`);});
+// janela para trocar a foto de cadastro de uma ferramenta (tipo "ferramenta") ou peça (tipo "peca")
+function formFoto(tipo,id,titulo,atual){
+  abrirModal(`<h3>Foto de cadastro · ${esc(titulo)}</h3>
+   <div class="fotopar" style="width:100%"><div class="ph" style="aspect-ratio:4/3">${atual?arqImg(atual,titulo):`<span>Ainda sem foto de cadastro.</span>`}</div></div>
+   <p class="mini" style="margin:0">${tipo==="peca"?"Foto desta peça específica (marcas, número de série, estado quando entrou no kit). Se não tiver, vale a foto da ferramenta.":"Foto do modelo: vale para todas as peças desta ferramenta que não tiverem foto própria."} O técnico vê esta foto como referência na conferência.</p>
+   <input type="file" accept="image/*" id="ffArq" hidden>
+   <div class="msg" id="ffMsg"></div>
+   <div class="row"><button type="button" class="btn" data-fechar>Fechar</button>${atual?`<button type="button" class="btn bad" id="ffRm">Remover foto</button>`:""}<span class="spacer"></span><button type="button" class="btn primary" id="ffEsc">${atual?"Trocar foto":"Escolher foto"}</button></div>`);
+  if(atual&&!S.arquivos[atual])baixarArq(atual).then(()=>{if(!$("modal").hidden&&$("ffArq"))formFoto(tipo,id,titulo,atual);});
+  const enviarFoto=async corpo=>{$("ffMsg").textContent="Enviando…";$("ffMsg").className="msg";$("ffEsc").disabled=true;
+    const r=await chamar("fotoCadastro",{tipo,id,...corpo}).catch(err=>({ok:false,erro:err.message}));
+    if(!r.ok){$("ffMsg").textContent=r.erro||"Não consegui salvar.";$("ffMsg").className="msg err";$("ffEsc").disabled=false;return;}
+    if(corpo.foto&&r.foto)S.arquivos[r.foto]="data:image/jpeg;base64,"+corpo.foto;
+    fecharModal();toast(corpo.remover?"Foto removida.":"Foto de cadastro salva.");await carregar();};
+  $("ffEsc").onclick=()=>$("ffArq").click();
+  $("ffArq").onchange=async e=>{const f=e.target.files[0];if(!f)return;try{const img=await encolher(f,1280,.8);await enviarFoto({foto:img.split(",")[1]});}catch(err){$("ffMsg").textContent="Não consegui usar esta imagem.";$("ffMsg").className="msg err";}};
+  const rm=$("ffRm");if(rm)rm.onclick=()=>{if(rm.dataset.c!=="1"){rm.dataset.c="1";rm.textContent="Confirmar remoção";return;}enviarFoto({remover:true});};
+}
 async function verArquivo(id,btn){btn.textContent="Carregando…";try{const r=await chamar("arquivo",{id});if(!r.ok){btn.textContent="Arquivo não encontrado";return;}S.arquivos[id]=`data:${r.tipo};base64,${r.b64}`;render();}catch(e){btn.textContent="Sem conexão";}}
 after.aprov=()=>{
   $("apSeg").onclick=e=>{const b=e.target.closest("[data-f]");if(!b)return;S.apF=b.dataset.f;render();};
   const l=$("apList");if(!l)return;
+  carregarPendentes();
   l.addEventListener("click",async e=>{
+    const vf=e.target.closest("[data-vfotos]");if(vf){S.fotosConf[vf.dataset.vfotos]=true;render();return;}
     const a=e.target.closest("[data-arq]");if(a)return verArquivo(a.dataset.arq,a);
     const b=e.target.closest("[data-ap]");if(!b)return;const card=b.closest("[data-conf]");b.disabled=true;
     await acao("revisarConf",{uid:card.dataset.conf,status:b.dataset.ap,comentario:card.querySelector("[data-com]").value.trim()},b.dataset.ap==="aprovada"?"Conferência aprovada.":"Conferência devolvida ao técnico.");});
@@ -256,7 +293,10 @@ function vPecas(){
 }
 function fichaHtml(u,LR){
   const t=toolById(u.ferramenta),h=historicoPeca(u.codigo),[sl,sc]=SIT[u.situacao]||SIT.ativa,k=kitById(u.kit);
+  const fp=u.foto||(t&&t.foto)||"";
   return `<div class="ficha"><div class="row"><code class="k" style="font-size:16px">${u.codigo}</code><b>${esc(t?t.desc:"")}</b><span class="spacer"></span><span class="chip ${sc}">${sl}</span></div>
+  <div class="row" style="align-items:flex-start;margin:8px 0"><div class="fotopar" style="width:170px"><div class="ph">${fp?arqImg(fp,"Foto de cadastro"):`<span>Sem foto de cadastro</span>`}</div><span class="mini">${u.foto?"Foto desta peça":fp?"Foto da ferramenta (modelo)":"Sem foto"}</span></div>
+   <div class="stack" style="gap:6px"><button type="button" class="btn small" data-fotopeca="${u.codigo}">${u.foto?"Trocar foto desta peça":"Adicionar foto desta peça"}</button>${t?`<button type="button" class="btn small" data-fototool="${t.id}">${t.foto?"Trocar":"Adicionar"} foto da ferramenta</button>`:""}</div></div>
   <div class="mini">${esc(kitName(u.kit))}${k&&k.responsavel?" · responsável: "+esc(k.responsavel):""} · última leitura: ${LR[u.codigo]?fmtDate(LR[u.codigo]):"nunca lida"}</div>
   ${h.length?`<ul>${h.map(x=>`<li><span class="mini">${fmtDate(x.em)}</span> ${x.h}</li>`).join("")}</ul>`:`<div class="mini" style="margin-top:6px">Sem registros ainda.</div>`}</div>`;
 }
@@ -282,7 +322,9 @@ async function pdfEtiquetas(units,start){
 }
 after.pecas=()=>{
   const go=()=>{const v=$("uCode").value.trim();if(!v)return;S.uOpen=normCode(v);render();};
-  $("uGo").onclick=go;$("uCode").addEventListener("keydown",e=>{if(e.key==="Enter"){e.preventDefault();go();}});
+  $("uGo").onclick=go;carregarPendentes();
+  const fpz=document.querySelector("[data-fotopeca]");if(fpz){const u=pecaBy(fpz.dataset.fotopeca);fpz.onclick=()=>formFoto("peca",u.codigo,u.codigo,u.foto);}
+  const ftz=document.querySelector("[data-fototool]");if(ftz){const t=toolById(ftz.dataset.fototool);ftz.onclick=()=>formFoto("ferramenta",t.id,t.desc,t.foto);}$("uCode").addEventListener("keydown",e=>{if(e.key==="Enter"){e.preventDefault();go();}});
   const info=()=>{const n=etiquetasSel().length,st=Math.max(1,Math.min(33,+$("lbStart").value||1)),f=Math.ceil((n+st-1)/33)||0;$("lbInfo").textContent=`${n} etiqueta${n===1?"":"s"} · ${f} folha${f===1?"":"s"}`;};
   $("lbWhich").onchange=()=>{$("lbRange").hidden=$("lbWhich").value!=="range";info();};["lbFrom","lbTo","lbStart"].forEach(id=>$(id).oninput=info);info();
   $("lbGo").onclick=async()=>{const us=etiquetasSel();if(!us.length)return toast("Nenhuma etiqueta nessa seleção.");const b=$("lbGo");b.disabled=true;b.textContent="Gerando PDF…";
@@ -303,7 +345,7 @@ after.pecas=()=>{
 function vCadastro(){
   const ts=D.tecnicos;
   const tools=D.ferramentas.slice().sort((a,b)=>(a.grupo>b.grupo?1:a.grupo<b.grupo?-1:(a.item||999)-(b.item||999)));
-  return `<div class="stack"><div><h2>Cadastro</h2><p class="lead">Técnicos, kits e a lista padrão de ferramentas.</p></div>
+  return `<div class="stack"><div><h2>Cadastro</h2><p class="lead">Técnicos, kits e a lista padrão de ferramentas. Clique no quadrado da coluna Foto para cadastrar a foto de cada ferramenta; marque "Exige foto" nas que o técnico deve fotografar em toda conferência e clique em Salvar na linha.</p></div>
   <div class="card stack"><div class="row"><h3>Técnicos (usuários do app)</h3><span class="spacer"></span><a class="btn small" href="../supervisor.html">Cadastrar no Diário de Obra</a></div>
    <p class="mini" style="margin:0">Os técnicos entram com o mesmo usuário e senha do Diário de Obra. Para cadastrar, trocar senha ou desativar, use o Painel do Diário de Obra: vale para os dois aplicativos.</p>
    ${ts.length?`<div class="tablebox"><table><thead><tr><th>Usuário</th><th>Nome</th><th>Situação</th><th></th></tr></thead><tbody id="tecRows">${ts.map(t=>`<tr data-login="${esc(t.login)}"><td><code class="k">${esc(t.login)}</code></td><td>${esc(t.nome)}</td><td>${t.ativo?`<span class="chip c-ok">Ativo</span>`:`<span class="chip c-mute">Desativado</span>`}</td><td></td></tr>`).join("")}</tbody></table></div>`:`<div class="empty">Nenhum técnico cadastrado no Diário de Obra.</div>`}</div>
@@ -312,10 +354,11 @@ function vCadastro(){
    ${D.kits.map(k=>`<tr data-k="${k.id}"><td><b>${esc(k.nome)}</b></td><td>${esc(k.responsavel||"—")}</td><td>${esc(k.local||"—")}</td><td class="mini">${k.tecnicos.length?esc(k.tecnicos.map(l=>(ts.find(t=>t.login===l)||{}).nome||l).join(", ")):"Todos"}</td><td>${k.ativo?`<span class="chip c-ok">Ativo</span>`:`<span class="chip c-mute">Inativo</span>`}</td><td><button type="button" class="btn small" data-edkit>Editar</button></td></tr>`).join("")}
    </tbody></table></div></div>
   <div class="card stack"><div class="row"><h3>Ferramentas (${D.ferramentas.length})</h3><span class="spacer"></span><button type="button" class="btn small" id="addTool">Nova ferramenta</button></div>
-   <div class="tablebox"><table><thead><tr><th class="num">Item</th><th>Descrição</th><th class="num">Qtd</th><th>Grupo</th><th>Situação</th><th></th></tr></thead><tbody id="toolRows">
-   ${tools.map(t=>`<tr data-t="${t.id}"><td style="width:74px"><input data-f="item" type="number" value="${t.item??""}"></td><td style="min-width:240px"><input data-f="desc" value="${esc(t.desc)}"></td><td style="width:82px"><input data-f="qtd" type="number" min="0" value="${t.qtd}"></td>
+   <div class="tablebox"><table><thead><tr><th>Foto</th><th class="num">Item</th><th>Descrição</th><th class="num">Qtd</th><th>Grupo</th><th>Situação</th><th title="O técnico precisa fotografar cada peça desta ferramenta na conferência">Exige foto</th><th></th></tr></thead><tbody id="toolRows">
+   ${tools.map(t=>`<tr data-t="${t.id}"><td style="width:56px"><button type="button" class="cadfoto" data-ftool title="${t.foto?"Ver ou trocar a foto":"Adicionar foto de cadastro"}" aria-label="Foto de ${esc(t.desc)}">${t.foto?(S.arquivos[t.foto]&&S.arquivos[t.foto]!=="x"?`<img src="${S.arquivos[t.foto]}" alt="">`:"🖼"):"＋"}</button></td><td style="width:74px"><input data-f="item" type="number" value="${t.item??""}"></td><td style="min-width:240px"><input data-f="desc" value="${esc(t.desc)}"></td><td style="width:82px"><input data-f="qtd" type="number" min="0" value="${t.qtd}"></td>
     <td style="width:170px"><select data-f="grupo">${Object.entries(GRUPOS).map(([k,l])=>`<option value="${k}" ${t.grupo===k?"selected":""}>${l}</option>`).join("")}</select></td>
     <td style="width:130px"><select data-f="ativa"><option value="1" ${t.ativa?"selected":""}>Ativa</option><option value="0" ${!t.ativa?"selected":""}>Inativa</option></select></td>
+    <td style="width:90px;text-align:center"><input type="checkbox" data-exige ${t.exigeFoto?"checked":""} aria-label="Exige foto na conferência" style="width:20px;height:20px"></td>
     <td style="white-space:nowrap"><button type="button" class="btn small" data-savet>Salvar</button> <button type="button" class="btn small bad" data-delt>Excluir</button></td></tr>`).join("")}
    </tbody></table></div></div></div>`;
 }
@@ -350,11 +393,14 @@ function formKit(k){
     if(!r.ok){$("kMsg").textContent=r.erro;$("kMsg").className="msg err";return;}fecharModal();toast("Kit salvo.");carregar();});
 }
 after.cadastro=()=>{
+  const faltam=D.ferramentas.filter(t=>t.foto&&!S.arquivos[t.foto]).map(t=>t.foto);
+  if(faltam.length&&!S.miniCarregando){S.miniCarregando=true;(async()=>{for(const id of faltam)await baixarArq(id);S.miniCarregando=false;if(S.tab==="cadastro")render();})();}
   $("addKit").onclick=()=>formKit(null);
   $("kitRows").addEventListener("click",e=>{const b=e.target.closest("[data-edkit]");if(b)formKit(kitById(b.closest("tr").dataset.k));});
   $("addTool").onclick=()=>{const next=Math.max(0,...perm().map(t=>t.item||0))+1;acao("ferramentaSalvar",{ferramenta:{item:next,desc:"Nova ferramenta",qtd:1,grupo:"permanente"}},"Ferramenta adicionada no fim da lista. Edite a descrição e salve.");};
   $("toolRows").addEventListener("click",async e=>{const row=e.target.closest("tr[data-t]");if(!row)return;
-    if(e.target.closest("[data-savet]")){const v={id:row.dataset.t};row.querySelectorAll("[data-f]").forEach(i=>v[i.dataset.f]=i.value.trim());v.ativa=v.ativa==="1";v.item=v.item===""?"":Number(v.item);v.qtd=Math.max(0,Number(v.qtd)||0);
+    if(e.target.closest("[data-ftool]")){const t=toolById(row.dataset.t);formFoto("ferramenta",t.id,t.desc,t.foto);return;}
+    if(e.target.closest("[data-savet]")){const v={id:row.dataset.t};row.querySelectorAll("[data-f]").forEach(i=>v[i.dataset.f]=i.value.trim());v.ativa=v.ativa==="1";v.exigeFoto=row.querySelector("[data-exige]").checked;v.item=v.item===""?"":Number(v.item);v.qtd=Math.max(0,Number(v.qtd)||0);
       if(!v.desc)return toast("Informe a descrição.");await acao("ferramentaSalvar",{ferramenta:v},"Ferramenta salva.");}
     const del=e.target.closest("[data-delt]");if(del){if(del.dataset.c!=="1"){del.dataset.c="1";del.textContent="Confirmar exclusão";return;}await acao("ferramentaExcluir",{id:row.dataset.t},"Ferramenta excluída.");}});
 };

@@ -1,6 +1,6 @@
 (function(){
 "use strict";
-const VERSAO="12/11/2026 15:00";
+const VERSAO="23/11/2026 11:00";
 const $=id=>document.getElementById(id);
 const CENTRAL=window.CENTRAL_FERRAMENTAS||{};
 const temCentral=()=>!!(CENTRAL.url&&CENTRAL.chave);
@@ -247,6 +247,24 @@ function modelo(d){
     return {t,us,need,got,dan,pend:got.length<need.length||dan};});
   return {rows,req,done,missing:req-done,manPend};
 }
+/* fotos obrigatórias: ferramenta marcada "exige foto" pelo supervisor (cada peça lida) ou peça/ferramenta danificada */
+function fotosNecessarias(d){
+  const out=[];
+  for(const t of perm()){
+    const us=unitsOf(d.kitId,t.id);
+    if(us.length){for(const u of us){const st=d.un[u.codigo];if(!st||u.situacao==="manutencao")continue;
+      if(st==="dan"||t.exigeFoto)out.push({chave:u.codigo,ferramenta:t.id,codigo:u.codigo,motivo:st==="dan"?"danificada":"exige"});}}
+    else{const it=d.itens[t.id];if(it&&it.q>0&&(it.s==="dan"||t.exigeFoto))out.push({chave:"t:"+t.id,ferramenta:t.id,codigo:"",motivo:it.s==="dan"?"danificada":"exige"});}
+  }
+  return out;
+}
+const fotosFaltando=d=>fotosNecessarias(d).filter(n=>!(d.fotos||{})[n.chave]);
+function fotoCtl(d,chave,motivo){
+  const f=(d.fotos||{})[chave];
+  if(f)return `<span class="fotoctl"><img class="fthumb" src="${f}" alt="Foto de ${esc(chave)}" data-ver-foto="${esc(chave)}"><button type="button" class="linkbtn" data-foto="${esc(chave)}">trocar</button></span>`;
+  return `<button type="button" class="btn small fotobtn" data-foto="${esc(chave)}">📷 Foto obrigatória${motivo==="danificada"?" (danificada)":""}</button>`;
+}
+function refFotoBtn(t,u){const id=(u&&u.foto)||(t&&t.foto);return id?`<button type="button" class="linkbtn" data-ref="${esc(id)}" data-reft="${esc((u?u.codigo+" · ":"")+(t?t.desc:""))}">ver foto de cadastro</button>`:"";}
 function vConferir(){
   const ks=kitsMeus();
   if(!ks.length)return `<div class="empty">Você não está liberado para conferir nenhum kit. Peça ao supervisor para incluir seu usuário no kit.</div>`;
@@ -279,23 +297,24 @@ function vConferir(){
 function unitBlock(r,d){
   const {t,us,need,got}=r;
   return `<div class="item ${r.pend?"pend":""}" data-tool="${t.id}"><span class="n">${String(t.item||"").padStart(2,"0")}</span>
-  <div class="d">${esc(t.desc)}<small>${got.length} de ${need.length} lida${need.length>1?"s":""}${us.length>need.length?` · ${us.length-need.length} em manutenção`:""}</small></div>
+  <div class="d">${esc(t.desc)}<small>${got.length} de ${need.length} lida${need.length>1?"s":""}${us.length>need.length?` · ${us.length-need.length} em manutenção`:""}${t.exigeFoto?` · <span class="exige">📷 exige foto</span>`:""} ${refFotoBtn(t)}</small></div>
   <div class="ctl">${got.length===need.length&&!r.dan?`<span class="chip c-ok">Completo</span>`:""}</div>
   <div class="units">${us.map(u=>{const st=d.un[u.codigo];
     if(u.situacao==="manutencao")return `<div class="unit off"><code>${u.codigo}</code><span>Em manutenção</span></div>`;
     if(!st)return `<div class="unit wait"><code>${u.codigo}</code><span>Aguardando leitura</span></div>`;
-    return `<div class="unit ${st==="dan"?"dan":"ok"}" data-u="${u.codigo}"><code>${u.codigo}</code><select data-ucond aria-label="Estado de ${u.codigo}"><option value="ok" ${st==="ok"?"selected":""}>Lida · conforme</option><option value="dan" ${st==="dan"?"selected":""}>Lida · danificada</option></select><button type="button" class="linkbtn" data-undo>desfazer</button></div>`;}).join("")}</div></div>`;
+    const pf=st==="dan"||t.exigeFoto;
+    return `<div class="unit ${st==="dan"?"dan":"ok"}${pf&&!(d.fotos||{})[u.codigo]?" semfoto":""}" data-u="${u.codigo}"><code>${u.codigo}</code><select data-ucond aria-label="Estado de ${u.codigo}"><option value="ok" ${st==="ok"?"selected":""}>Lida · conforme</option><option value="dan" ${st==="dan"?"selected":""}>Lida · danificada</option></select>${pf?fotoCtl(d,u.codigo,st==="dan"?"danificada":"exige"):""}${u.foto?refFotoBtn(t,u):""}<button type="button" class="linkbtn" data-undo>desfazer</button></div>`;}).join("")}</div></div>`;
 }
 function itemRow(t,it){
-  const p=it.q<t.qtd||it.s!=="ok";
+  const p=it.q<t.qtd||it.s!=="ok",d=S.draft,pf=it.q>0&&(it.s==="dan"||t.exigeFoto);
   return `<div class="item ${p?"pend":""}" data-id="${t.id}"><span class="n">${String(t.item||"").padStart(2,"0")}</span>
-  <div class="d">${esc(t.desc)}<small>Sem etiqueta · quantidade fixa: ${t.qtd}</small></div>
+  <div class="d">${esc(t.desc)}<small>Sem etiqueta · quantidade fixa: ${t.qtd}${t.exigeFoto?` · <span class="exige">📷 exige foto</span>`:""} ${refFotoBtn(t)}</small>${pf?`<div style="margin-top:6px">${fotoCtl(d,"t:"+t.id,it.s==="dan"?"danificada":"exige")}</div>`:""}</div>
   <div class="ctl"><div class="step"><button type="button" data-dq="-1" aria-label="Diminuir">−</button><span>${it.q}/${t.qtd}</span><button type="button" data-dq="1" aria-label="Aumentar">+</button></div>
   <select class="cond" data-cond aria-label="Estado">${Object.entries(CONDS).map(([k,v])=>`<option value="${k}" ${it.s===k?"selected":""}>${v}</option>`).join("")}</select></div></div>`;
 }
 function stickyConf(){
-  const d=S.draft;if(!d||!kitsMeus().length)return;const M=modelo(d),falt=M.missing+M.manPend;
-  $("stickyHost").innerHTML=`<div class="sticky"><div class="wrap"><div class="mini" style="color:var(--fg)"><b class="tnum">${M.done}</b>/${M.req} lidas${falt?` · <b style="color:var(--bad)">${falt} faltando ou com problema</b>`:` · <b style="color:var(--ok)">kit completo</b>`}</div><span class="spacer"></span><button type="button" class="btn primary" id="sendConf">${M.missing?`Enviar com ${M.missing} faltando`:"Enviar conferência"}</button></div></div>`;
+  const d=S.draft;if(!d||!kitsMeus().length)return;const M=modelo(d),falt=M.missing+M.manPend,sf=fotosFaltando(d).length;
+  $("stickyHost").innerHTML=`<div class="sticky"><div class="wrap"><div class="mini" style="color:var(--fg)"><b class="tnum">${M.done}</b>/${M.req} lidas${falt?` · <b style="color:var(--bad)">${falt} faltando ou com problema</b>`:` · <b style="color:var(--ok)">kit completo</b>`}${sf?` · <b style="color:var(--warn)">📷 falta${sf>1?"m":""} ${sf} foto${sf>1?"s":""}</b>`:""}</div><span class="spacer"></span><button type="button" class="btn primary" id="sendConf">${M.missing?`Enviar com ${M.missing} faltando`:"Enviar conferência"}</button></div></div>`;
   $("sendConf").onclick=enviarConf;
 }
 let lastBeep=0,audioCtx=null;
@@ -325,9 +344,14 @@ after.conferir=()=>{
   const bs=$("bScan");if(bs)bs.onclick=()=>abrirLeitor(lerCodigo,()=>{const M=modelo(S.draft);return `${M.done} de ${M.req} etiquetas lidas${S.draft.alheias.length?" · "+S.draft.alheias.length+" de outro kit":""}`;},()=>render());
   const ci=$("csIn");if(ci){ci.addEventListener("keydown",e=>{if(e.key==="Enter"){e.preventDefault();digitado();}});$("csOk").onclick=digitado;}
   $("items").addEventListener("click",e=>{
-    const un=e.target.closest("[data-undo]");if(un){delete d.un[un.closest("[data-u]").dataset.u];salvarRascunho();render();return;}
+    const fb=e.target.closest("[data-foto]");if(fb){tirarFoto(fb.dataset.foto);return;}
+    const vf=e.target.closest("[data-ver-foto]");if(vf){verImagem((d.fotos||{})[vf.dataset.verFoto],"Foto tirada agora · "+vf.dataset.verFoto,vf.dataset.verFoto);return;}
+    const rf=e.target.closest("[data-ref]");if(rf){verFotoCadastro(rf.dataset.ref,rf.dataset.reft);return;}
+    const un=e.target.closest("[data-undo]");if(un){const c=un.closest("[data-u]").dataset.u;delete d.un[c];if(d.fotos)delete d.fotos[c];salvarRascunho();render();return;}
     const b=e.target.closest("[data-dq]");if(!b)return;const row=b.closest("[data-id]"),t=toolById(row.dataset.id),it=d.itens[t.id];
     it.q=Math.max(0,Math.min(99,it.q+Number(b.dataset.dq)));if(it.q===0&&it.s==="ok")it.s="falta";if(it.q>0&&it.s==="falta")it.s="ok";row.outerHTML=itemRow(t,it);salvarRascunho();stickyConf();});
+  // tirar foto: um campo de arquivo só, que abre a câmera traseira
+  window.tirarFoto=chave=>{fotoAlvo=chave;const fi=$("fotoConf");fi.value="";fi.click();};
   $("items").addEventListener("change",e=>{
     const uc=e.target.closest("[data-ucond]");if(uc){d.un[uc.closest("[data-u]").dataset.u]=uc.value;salvarRascunho();render();return;}
     const s=e.target.closest("[data-cond]");if(!s)return;const row=s.closest("[data-id]"),t=toolById(row.dataset.id),it=d.itens[t.id];it.s=s.value;if(s.value==="falta"&&it.q===t.qtd)it.q=Math.max(0,t.qtd-1);row.outerHTML=itemRow(t,it);salvarRascunho();stickyConf();});
@@ -350,6 +374,10 @@ async function enviarConf(){
   const d=S.draft,s=lerSessao();
   if(!d.sig)return toast("Assine no campo de assinatura.");
   if(!d.aceite)return toast("Marque a declaração de responsabilidade.");
+  const ff=fotosFaltando(d);
+  if(ff.length){S.filterPend=false;render();const el=document.querySelector(".semfoto,.fotobtn");if(el)el.scrollIntoView({behavior:"smooth",block:"center"});
+    return toast(`Falta${ff.length>1?"m":""} ${ff.length} foto${ff.length>1?"s":""}: ${ff.slice(0,4).map(n=>n.codigo||(toolById(n.ferramenta)||{}).desc||"").join(", ")}${ff.length>4?"…":""}. Toque em 📷 em cada uma.`,5500);}
+  const fotos=fotosNecessarias(d).map(n=>({ferramenta:n.ferramenta,codigo:n.codigo,motivo:n.motivo,foto:d.fotos[n.chave].split(",")[1]}));
   const M=modelo(d),itens={},pecas={};
   for(const r of M.rows){
     if(r.manual){itens[r.t.id]={q:r.it.q,s:r.it.s};continue;}
@@ -360,8 +388,8 @@ async function enviarConf(){
   const pend=perm().filter(t=>itens[t.id]&&(itens[t.id].q<t.qtd||itens[t.id].s!=="ok")).length;
   const uid=novoUid("conf"),agora=new Date().toISOString();
   const reg={uid,tipoReg:"conf",login:s.usuario,criado_em:agora,estado:"fila",
-    resumo:{kit_nome:kitName(d.kitId),tipo:d.tipo,local:d.local,lidas:M.done,esperadas:M.req,pendencias:pend,itens,pecas,alheias:[...d.alheias]},
-    dados:{uid,criado_em:agora,kit:d.kitId,tipo:d.tipo,local:d.local.trim(),obs:d.obs.trim(),itens,pecas,alheias:[...d.alheias],lidas:M.done,esperadas:M.req,pendencias:pend,assinatura:d.sig.split(",")[1]}};
+    resumo:{kit_nome:kitName(d.kitId),tipo:d.tipo,local:d.local,lidas:M.done,esperadas:M.req,pendencias:pend,itens,pecas,alheias:[...d.alheias],nfotos:fotos.length},
+    dados:{uid,criado_em:agora,kit:d.kitId,tipo:d.tipo,local:d.local.trim(),obs:d.obs.trim(),itens,pecas,alheias:[...d.alheias],lidas:M.done,esperadas:M.req,pendencias:pend,assinatura:d.sig.split(",")[1],fotos}};
   try{await filaPut(reg);}catch(e){return toast("Não consegui guardar no celular (memória cheia?). Tente de novo.");}
   ls.set("fer-local",d.local.trim());
   S.draft=null;await kvPut("rascunho",null);S.fila=await filaAll();S.tab="meus";render();window.scrollTo(0,0);
@@ -453,7 +481,32 @@ function vOcorrencia(){
    <div class="row"><span class="spacer"></span><button type="button" class="btn primary big" id="oSend">Registrar</button></div>
   </div></div>`;
 }
-function encolher(file){return new Promise((ok,no)=>{const img=new Image();img.onload=()=>{const s=Math.min(1,1280/Math.max(img.width,img.height)),c=document.createElement("canvas");c.width=Math.round(img.width*s);c.height=Math.round(img.height*s);c.getContext("2d").drawImage(img,0,0,c.width,c.height);URL.revokeObjectURL(img.src);ok(c.toDataURL("image/jpeg",.78));};img.onerror=no;img.src=URL.createObjectURL(file);});}
+/* ---------- fotos da conferência e foto de cadastro ---------- */
+let fotoAlvo=null;
+$("fotoConf").addEventListener("change",async e=>{const f=e.target.files[0],d=S.draft;if(!f||!d||!fotoAlvo)return;
+  try{const img=await encolher(f,1024,.72);d.fotos=d.fotos||{};d.fotos[fotoAlvo]=img;salvarRascunho(true);render();toast("Foto guardada.");}
+  catch(err){toast("Não consegui usar a foto. Tente de novo.");}finally{fotoAlvo=null;}});
+function verImagem(src,titulo,chaveConf){
+  if(!src)return;const v=$("visor");
+  v.innerHTML=`<div class="box"><div class="row"><b>${esc(titulo||"")}</b><span class="spacer"></span><button type="button" class="btn small" data-fechar>Fechar</button></div><img src="${src}" alt="${esc(titulo||"Foto")}" style="width:100%;border-radius:10px">${chaveConf?`<div class="row"><button type="button" class="btn small bad" data-rmfoto="${esc(chaveConf)}">Apagar esta foto</button><span class="spacer"></span><button type="button" class="btn small primary" data-refoto="${esc(chaveConf)}">Tirar outra</button></div>`:""}</div>`;
+  v.hidden=false;
+}
+$("visor").addEventListener("click",e=>{const v=$("visor");
+  if(e.target===v||e.target.closest("[data-fechar]")){v.hidden=true;v.innerHTML="";return;}
+  const rm=e.target.closest("[data-rmfoto]");if(rm&&S.draft&&S.draft.fotos){delete S.draft.fotos[rm.dataset.rmfoto];salvarRascunho(true);v.hidden=true;v.innerHTML="";render();return;}
+  const rf=e.target.closest("[data-refoto]");if(rf){v.hidden=true;v.innerHTML="";window.tirarFoto(rf.dataset.refoto);}});
+const refCache={};
+async function verFotoCadastro(id,titulo){
+  if(!refCache[id]){try{const c=await kvGet("ref:"+id);if(c)refCache[id]=c;}catch(e){}}
+  if(!refCache[id]){
+    if(!navigator.onLine)return toast("Sem internet: a foto de cadastro só abre com sinal.");
+    toast("Carregando a foto de cadastro…");
+    try{const r=await chamar({acao:"fotoCadastro",id});if(!r.ok)return toast("Foto de cadastro não encontrada.");refCache[id]=`data:${r.tipo};base64,${r.b64}`;kvPut("ref:"+id,refCache[id]).catch(()=>{});}
+    catch(e){return toast("Não consegui carregar a foto agora.");}
+  }
+  verImagem(refCache[id],"Foto de cadastro · "+titulo);
+}
+function encolher(file,lado,qual){return new Promise((ok,no)=>{const img=new Image();img.onload=()=>{const s=Math.min(1,(lado||1280)/Math.max(img.width,img.height)),c=document.createElement("canvas");c.width=Math.round(img.width*s);c.height=Math.round(img.height*s);c.getContext("2d").drawImage(img,0,0,c.width,c.height);URL.revokeObjectURL(img.src);ok(c.toDataURL("image/jpeg",qual||.78));};img.onerror=no;img.src=URL.createObjectURL(file);});}
 function codigoOc(code){const u=unitByCode(code);if(!u){toast(`Código ${code} não cadastrado.`);return {tipo:"erro",msg:`Código ${code} não cadastrado.`};}
   Object.assign(S.oc,{codigo:code,toolId:u.ferramenta,kitId:u.kit,qtd:1});return {tipo:"ok",msg:`✓ ${code} · ${(toolById(u.ferramenta)||{}).desc||""}`};}
 after.ocorrencia=()=>{
@@ -491,7 +544,7 @@ function linhasPend(itens,pecas){
 function cartaoConf(c,estado,extra){
   const [st,cls]=estado;const pend=linhasPend(c.itens,c.pecas);
   return `<div class="rec"><div class="row"><h3>${esc(c.tipo)} · ${esc(c.kit_nome)}</h3><span class="spacer"></span><span class="chip ${cls}">${st}</span></div>
-  <div class="meta">${fmtDate(c.criado_em)}${c.local?" · "+esc(c.local):""} · ${c.lidas} de ${c.esperadas} etiquetas lidas</div>
+  <div class="meta">${fmtDate(c.criado_em)}${c.local?" · "+esc(c.local):""} · ${c.lidas} de ${c.esperadas} etiquetas lidas${c.nfotos?` · 📷 ${c.nfotos} foto${c.nfotos>1?"s":""}`:""}</div>
   ${pend.length?`<div><span class="chip c-warn">${pend.length} pendência${pend.length>1?"s":""}</span>${pend.length<=8?`<ul class="diffs">${pend.join("")}</ul>`:`<ul class="diffs">${pend.slice(0,6).join("")}</ul><details><summary>Ver mais ${pend.length-6}</summary><ul class="diffs">${pend.slice(6).join("")}</ul></details>`}</div>`:`<div><span class="chip c-ok">Kit completo</span></div>`}
   ${c.alheias&&c.alheias.length?`<div class="mini">Peças de outro kit: ${esc(c.alheias.join(", "))}</div>`:""}
   ${c.comentario?`<div class="mini"><b>Supervisor:</b> ${esc(c.comentario)}</div>`:""}${extra||""}</div>`;
