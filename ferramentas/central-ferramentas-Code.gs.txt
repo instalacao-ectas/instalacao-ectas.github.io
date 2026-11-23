@@ -32,7 +32,7 @@ const T = {
   ferramentas: { aba: "Ferramentas", cols: ["id", "item", "descricao", "qtd", "grupo", "ativa", "foto", "exige_foto"],
     tit: ["ID", "Item", "Descrição", "Qtd fixa", "Grupo (permanente, almox ou individual)", "Ativa", "Foto de cadastro (arquivo)", "Exige foto na conferência"] },
   kits: { aba: "Kits", cols: ["id", "nome", "responsavel", "local", "tecnicos", "ordem", "ativo"],
-    tit: ["ID", "Kit", "Responsável", "Local / equipe", "Técnicos que podem conferir (logins)", "Ordem", "Ativo"] },
+    tit: ["ID", "Kit", "Responsável", "Local / equipe", "Técnicos autorizados (logins; vazio = ninguém)", "Ordem", "Ativo"] },
   pecas: { aba: "Peças", cols: ["codigo", "ferramenta", "kit", "situacao", "criado_em", "obs", "foto"],
     tit: ["Código", "ID ferramenta", "ID kit", "Situação (ativa, manutencao, baixada)", "Cadastrada em", "Observação", "Foto de cadastro (arquivo)"] },
   tecnicos: { aba: "Técnicos", cols: ["login", "nome", "ativo", "hash", "sal", "versao"],
@@ -160,7 +160,9 @@ function oc_(o) {
     qtd: Number(o.qtd) || 1, descricao: String(o.descricao || ""), tecnico: String(o.tecnico), login: String(o.login), foto: String(o.foto || ""),
     status: String(o.status || "aberta"), comentario: String(o.comentario || ""), atualizado_em: String(o.atualizado_em || "") };
 }
-const kitPermitido_ = (k, u) => !!k && k.ativo && (!k.tecnicos.length || k.tecnicos.indexOf(u.login) >= 0);
+// acesso só com autorização do supervisor: o técnico precisa estar cadastrado no kit (lista vazia = ninguém)
+const kitPermitido_ = (k, u) => !!k && k.ativo && k.tecnicos.indexOf(String(u.login).toLowerCase()) >= 0;
+const liberado_ = u => kits_().some(k => kitPermitido_(k, u));
 
 /* ---------- app do técnico ---------- */
 function doPost(e) {
@@ -180,6 +182,7 @@ function doPost(e) {
   if (b.chave !== CHAVE_CAMPO) return json_({ ok: false, erro: "chave inválida" });
   if (b.acao === "login") return json_(login_(b));
   if (b.acao === "loginDiario") return json_(loginDiario_(b));
+  if (b.acao === "acesso") return json_(acesso_(b));
   const u = sessao_(b.token);
   if (!u) return json_({ ok: false, erro: "sessao" });
   if (b.acao === "dados") return json_(dadosCampo_(u));
@@ -199,7 +202,7 @@ function doGet(e) {
 
 function dadosCampo_(u) {
   const kits = kits_();
-  return { ok: true, usuario: { login: u.login, nome: u.nome }, prazo: PRAZO_CONFERENCIA,
+  return { ok: true, usuario: { login: u.login, nome: u.nome }, prazo: PRAZO_CONFERENCIA, liberado: kits.some(k => kitPermitido_(k, u)),
     ferramentas: ferramentas_().filter(f => f.ativa),
     kits: kits.filter(k => k.ativo).map(k => ({ id: k.id, nome: k.nome, responsavel: k.responsavel, local: k.local, permitido: kitPermitido_(k, u) })),
     pecas: pecas_() };
@@ -256,6 +259,7 @@ function salvarOc_(o, u) {
   const uid = limpa_(o.uid, 80);
   if (!uid) return { ok: false, erro: "sem uid" };
   if (ler_("oc").some(x => String(x.uid) === uid)) return { ok: true, uid: uid, repetido: true };
+  if (!liberado_(u)) return { ok: false, codigo: "acesso", erro: "Seu acesso ao Controle de Ferramentas não está liberado. Fale com o supervisor." };
   const kit = kits_().find(k => k.id === String(o.kit));
   const f = ferramentas_().find(x => x.id === String(o.ferramenta));
   if (!f) return { ok: false, codigo: "ferramenta", erro: "Ferramenta não encontrada. Atualize o app." };
@@ -362,7 +366,24 @@ function loginDiario_(b) {
   const token = Utilities.getUuid() + Utilities.getUuid().slice(0, 8);
   PropertiesService.getScriptProperties().setProperty("tk_" + token,
     JSON.stringify({ l: u.login, n: u.nome, d: String(b.tokenDiario), chk: Date.now(), exp: Date.now() + DIAS_SESSAO * 864e5 }));
-  return { ok: true, token: token, usuario: u };
+  return { ok: true, token: token, usuario: u, liberado: liberado_(u) };
+}
+// usado pelos outros apps (Diário, Agenda) para mostrar ou esconder o botão do Controle de Ferramentas
+function acesso_(b) {
+  const t = String(b.tokenDiario || "");
+  if (!t) return { ok: false, erro: "sessao_diario" };
+  const cache = CacheService.getScriptCache(), k = "ac_" + Utilities.base64EncodeWebSafe(Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, t)).slice(0, 40);
+  // guarda só quem é o usuário (evita perguntar ao Diário toda hora); a autorização é lida da planilha a cada vez
+  let u = null;
+  const c = cache.get(k);
+  if (c) u = JSON.parse(c);
+  else {
+    u = usuarioDiario_(t);
+    if (u === false) return { ok: false, erro: "Não consegui falar com a central do Diário de Obra." };
+    if (!u) return { ok: false, erro: "sessao_diario" };
+    cache.put(k, JSON.stringify({ login: u.login, nome: u.nome }), 600);
+  }
+  return { ok: true, liberado: liberado_(u), kits: kits_().filter(x => kitPermitido_(x, u)).map(x => x.nome) };
 }
 // senha do painel = senha do Painel do Diário (conferida na central do Diário, com cache de 10 minutos)
 function senhaDiario_(senha) {
