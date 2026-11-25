@@ -18,6 +18,10 @@ e a tela recebe apenas o valor hora e o valor dia de cada colaborador.
   O lançamento fica **Aguardando aprovação** até alguém aprovar.
 - **Custos e regras:** valor hora e dia de cada colaborador, ligação com o nome usado na Agenda e a diária do carro.
 
+## Situação
+
+Central instalada e ligada em 25/11/2026 (projeto **Custos de Campo ECTAS - Central**, planilha **Custos de Campo ECTAS - Base**), com as 279 visitas da planilha antiga e os 21 colaboradores da aba DADOS. O arquivo Carga foi esvaziado depois da importação.
+
 ## Ligar a central (uma vez só, cerca de 10 minutos)
 
 1. Entre no Google com a conta da central (diariodeobra.ectas@gmail.com) e abra https://script.google.com.
