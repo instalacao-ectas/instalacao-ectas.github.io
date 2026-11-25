@@ -333,6 +333,24 @@ function renderForm(){
   $("i-resp").innerHTML=`<option value="">Ninguém (supervisor lança tudo)</option>`+TECNICOS.map(t=>`<option value="${esc(t.login)}" ${F.resp&&F.resp.login===t.login?"selected":""}>${esc(t.nome)}</option>`).join("");
   renderCampo();renderEq();renderAd();irPara(passo);
 }
+/* excluir um lançamento já gravado (o histórico da planilha não é excluído) */
+function salvoNoPainel(){return !!(F&&F.id&&APP.some(v=>v.id===F.id));}
+function botaoExcluir(){const b=$("b-exclui");b.hidden=!salvoNoPainel();delete b.dataset.c;b.textContent="Excluir lançamento";b.className="btn perigo";}
+$("b-exclui").onclick=async e=>{
+  const b=e.currentTarget;if(!salvoNoPainel())return;
+  if(!b.dataset.c){const nn=(F.notas||[]).length;b.dataset.c=1;b.className="btn perigo-cheio";
+    b.textContent=nn?`Confirmar: apagar visita e ${nn} nota(s) do técnico`:"Confirmar exclusão";
+    setTimeout(()=>{if(b.dataset.c)botaoExcluir();},5000);return;}
+  const id=F.id,nome=`${F.pedido} - ${F.obra}`;b.disabled=true;
+  try{
+    if(PREVIA)lsSet(LS_PREVIA,lsGet(LS_PREVIA,[]).filter(x=>x.id!==id));
+    else await enviar(CC,{painel:true,acao:"lancExcluir",id});
+    APP=APP.filter(v=>v.id!==id);
+    const sup=F.supervisor;F=novo();F.supervisor=sup;passo=0;rascunho();renderForm();
+    toast(`Lançamento ${nome} excluído`);
+  }catch(err){toast(err.message||"Não foi possível excluir");}
+  finally{b.disabled=false;botaoExcluir();}
+};
 function irPara(p){
   passo=p;
   $("passos").innerHTML=PASSOS.map((n,i)=>`<button type="button" data-p="${i}" ${i===passo?'aria-current="step"':""} class="${i<passo?"feito":""} ${i===1&&!orcado()?"pula":""}"><b>${i<passo?"✓":i+1}</b>${esc(n)}</button>`).join("");
@@ -359,7 +377,7 @@ $("i-tipo").addEventListener("change",e=>{F.tipo=e.target.value;rascunho();irPar
 $("i-sup").addEventListener("input",e=>{F.supervisor=e.target.value;try{localStorage.setItem("orc-sup",F.supervisor);}catch(x){}rascunho();});
 $("i-obs").addEventListener("input",e=>{F.obs=e.target.value;rascunho();});
 $("i-resp").addEventListener("change",e=>{const t=TECNICOS.find(x=>x.login===e.target.value);F.resp=t?{login:t.login,nome:t.nome}:null;rascunho();renderCampo();});
-function renderCampo(){
+function renderCampo(){botaoExcluir();
   const box=$("i-campo"),aberta=F.status==="Em campo";
   if(aberta){box.innerHTML=`<b class="t">📱 Visita aberta em campo</b><span>${esc(F.resp?F.resp.nome:"")} está lançando as notas fiscais pelo celular (${notasAtivas(F).length} nota(s), ${brl(notasAtivas(F).reduce((a,n)=>a+n.valor,0))}). Complete os outros custos e envie para aprovação no fim: a visita é encerrada para o técnico.</span>`;return;}
   box.innerHTML=`<b class="t">📱 Gastos adicionais pelo técnico</b><span>${F.resp?`<b>${esc(F.resp.nome)}</b> vai lançar as notas fiscais da visita pelo celular (app Gastos de Campo). Abra a visita agora; você completa o resto depois.`:"Escolha o responsável em campo acima para ele lançar as notas fiscais pelo celular."}</span>
