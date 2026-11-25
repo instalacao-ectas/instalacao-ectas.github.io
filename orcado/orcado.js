@@ -12,6 +12,9 @@ const ORCADOS=new Set(["INSTALAÇÃO","COMISSIONAMENTO","START-UP"]);
 const CONCEITO=[["Instalação","Sim","ECTAS (vendido ao cliente)"],["Comissionamento","Sim","ECTAS (vendido ao cliente)"],["Start-up","Sim","ECTAS (vendido ao cliente)"],["Manutenção em garantia","Não","ECTAS"],["Manutenção contratada","Não","Cliente"]];
 const CATS=[["desl","Deslocamento"],["est","Estadia"],["ht","Horas técnicas"],["he","Horas extras"],["adic","Gastos adicionais"],["frete","Frete"],["munk","Munk"]];
 const SIT={estouro:["Acima do orçado","p-ruim"],dentro:["Dentro do orçado","p-ok"],nao:["Não orçado","p-neu"],pend:["Orçado sem gasto","p-atn"],vazio:["Sem valores","p-neu"]};
+const MESES_L=["Janeiro","Fevereiro","Março","Abril","Maio","Junho","Julho","Agosto","Setembro","Outubro","Novembro","Dezembro"];
+const noPeriodo=(v,ano,mes)=>{const d=v.ini||v.cad||"";return (!ano||d.startsWith(ano))&&(!mes||d.slice(5,7)===mes);};
+const nomePeriodo=(ano,mes)=>mes?(MESES_L[+mes-1].toLowerCase()+(ano?"/"+ano:" (todos os anos)")):(ano||"todos os anos");
 const MESES=["jan","fev","mar","abr","mai","jun","jul","ago","set","out","nov","dez"];
 
 /* ---------- utilitários ---------- */
@@ -117,11 +120,11 @@ function opcoes(sel,lista,primeiro){const v=sel.value;sel.innerHTML=(primeiro!=n
 /* ---------- RESUMO ---------- */
 function renderResumo(){
   const anos=[...new Set(todas().map(v=>(v.ini||v.cad||"").slice(0,4)).filter(Boolean))].sort().reverse();
-  opcoes($("r-ano"),anos,"Todos os anos");opcoes($("r-tipo"),TIPOS,"Todos os tipos");
+  opcoes($("r-ano"),anos,"Todos os anos");opcoes($("r-mes-f"),MESES_L.map((m,i)=>[String(i+1).padStart(2,"0"),m]),"Todos os meses");opcoes($("r-tipo"),TIPOS,"Todos os tipos");
   const obs=[...new Map(todas().map(v=>[v.idObra,v.obra])).entries()].sort((a,b)=>String(a[1]).localeCompare(String(b[1])));
   opcoes($("r-obra"),obs.map(([i,n])=>[i,`${i} - ${n}`]),"Todas as obras");
-  const ano=$("r-ano").value,tp=$("r-tipo").value,ob=$("r-obra").value;
-  const L=todas().filter(v=>(!ano||(v.ini||v.cad||"").startsWith(ano))&&(!tp||v.tipo===tp)&&(!ob||v.idObra===ob)).map(v=>({v,c:calc(v)}));
+  const ano=$("r-ano").value,mes=$("r-mes-f").value,tp=$("r-tipo").value,ob=$("r-obra").value;
+  const L=todas().filter(v=>noPeriodo(v,ano,mes)&&(!tp||v.tipo===tp)&&(!ob||v.idObra===ob)).map(v=>({v,c:calc(v)}));
   const comp=L.filter(x=>x.c.sit==="estouro"||x.c.sit==="dentro");
   const O=comp.reduce((a,x)=>a+x.c.orc.total,0),R=comp.reduce((a,x)=>a+x.c.real.total,0);
   const nao=L.filter(x=>x.c.sit==="nao"),est=comp.filter(x=>x.c.sit==="estouro").length;
@@ -151,20 +154,30 @@ function renderResumo(){
   const OB=Object.values(g).map(o=>({...o,saldo:o.orc?o.orc-o.realC:null,desv:o.orc?(o.realC-o.orc)/o.orc*100:null}));
   const ord=$("r-ord").value;
   OB.sort({real:(a,b)=>b.real-a.real,estouro:(a,b)=>((a.saldo==null?1e15:a.saldo)-(b.saldo==null?1e15:b.saldo)),data:(a,b)=>b.ult.localeCompare(a.ult),obra:(a,b)=>String(a.obra).localeCompare(String(b.obra))}[ord]);
-  const per=[ano||"todos os anos",tp?tp.toLowerCase():"",ob?("obra "+ob):""].filter(Boolean).join(" · ");
+  const per=[nomePeriodo(ano,mes),tp?tp.toLowerCase():"",ob?("obra "+ob):""].filter(Boolean).join(" · ");
   $("r-tit").textContent=`Cenário das obras no período (${plural(OB.length,"obra","obras")})`;
   $("r-dica").textContent=`Todas as obras com gasto lançado em ${per}, somando as visitas de cada uma. Clique numa obra para ver o resumo geral dos gastos dela.`;
   const sitO=o=>!o.orc?["Não orçado","p-neu"]:o.realC>o.orc?["Acima do orçado","p-ruim"]:["Dentro do orçado","p-ok"];
   $("r-obras").innerHTML=OB.length?OB.map(o=>{const s=sitO(o);return `<tr class="clic" data-ob="${esc(o.id||("N:"+o.obra))}"><td class="quebra">${esc(o.id)} - ${esc(o.obra)}<small>${esc(Object.keys(o.tipos).join(", ").toLowerCase())}</small></td><td class="n">${o.n}</td><td>${fmt(o.ult)}</td><td class="n">${o.orc?brl(o.orc):"-"}</td><td class="n">${brl(o.real)}</td><td class="n ${o.saldo==null?"":o.saldo<0?"neg":"pos"}">${o.saldo==null?"-":brl(o.saldo)}</td><td class="n ${o.desv==null?"":o.desv>0?"neg":"pos"}">${o.desv==null?"-":pct(o.desv)}</td><td><span class="pill ${s[1]}">${s[0]}</span></td></tr>`;}).join(""):`<tr><td colspan="8">Nenhum gasto lançado no filtro.</td></tr>`;
   const tO=OB.reduce((a,o)=>a+o.orc,0),tR=OB.reduce((a,o)=>a+o.real,0),tRc=OB.reduce((a,o)=>a+o.realC,0),tN=OB.reduce((a,o)=>a+o.n,0);
   $("r-tot").innerHTML=OB.length?`<tr class="tot"><td>Total (${plural(OB.length,"obra","obras")})</td><td class="n">${tN}</td><td></td><td class="n">${brl(tO)}</td><td class="n">${brl(tR)}</td><td class="n ${tO-tRc<0?"neg":"pos"}" title="Saldo só das visitas com orçado">${tO?brl(tO-tRc):"-"}</td><td class="n">${tO?pct((tRc-tO)/tO*100):"-"}</td><td></td></tr>`:"";
-  $("r-obras").querySelectorAll("tr[data-ob]").forEach(tr=>tr.onclick=()=>abrirObra(tr.dataset.ob,ano,tp));
-  // maiores estouros (visitas)
-  const top=comp.filter(x=>x.c.sit==="estouro").sort((a,b)=>a.c.saldo-b.c.saldo).slice(0,10);
-  $("r-top").innerHTML=top.length?top.map(({v,c})=>`<tr class="clic" data-k="${esc(v._k)}"><td>${esc(v.pedido)}</td><td class="quebra">${esc(v.obra)}</td><td>${esc(v.tipo)}</td><td>${fmt(v.ini)}</td><td class="n">${brl(c.orc.total)}</td><td class="n">${brl(c.real.total)}</td><td class="n neg">${brl(c.saldo)}</td><td class="n neg">${pct(c.desvio)}</td></tr>`).join(""):`<tr><td colspan="8">Nenhum estouro no filtro.</td></tr>`;
+  $("r-obras").querySelectorAll("tr[data-ob]").forEach(tr=>tr.onclick=()=>abrirObra(tr.dataset.ob,ano,tp,mes));
+  // obras dentro do orçamento (visitas orçadas com realizado <= orçado)
+  const den=comp.filter(x=>x.c.sit==="dentro").sort((a,b)=>b.c.saldo-a.c.saldo);
+  $("r-dentro-dica").textContent=`${plural(den.length,"visita orçada ficou","visitas orçadas ficaram")} com o realizado igual ou abaixo do orçado em ${per} (de ${comp.length} com orçado e gasto), da maior economia para a menor.`;
+  $("r-dentro").innerHTML=den.length?den.map(({v,c})=>`<tr class="clic" data-k="${esc(v._k)}"><td>${esc(v.pedido)}</td><td class="quebra">${esc(v.obra)}</td><td class="tipo-c">${esc(v.tipo)}</td><td>${fmt(v.ini)}</td><td class="n">${brl(c.orc.total)}</td><td class="n">${brl(c.real.total)}</td><td class="n pos">${brl(c.saldo)}</td><td class="n pos">${pct(c.desvio)}</td></tr>`).join(""):`<tr><td colspan="8">Nenhuma visita dentro do orçamento no filtro.</td></tr>`;
+  const dO=den.reduce((a,x)=>a+x.c.orc.total,0),dR=den.reduce((a,x)=>a+x.c.real.total,0);
+  $("r-dentro-tot").innerHTML=den.length?`<tr class="tot"><td colspan="4">Total (${plural(den.length,"visita","visitas")})</td><td class="n">${brl(dO)}</td><td class="n">${brl(dR)}</td><td class="n pos">${brl(dO-dR)}</td><td class="n pos">${pct((dR-dO)/dO*100)}</td></tr>`:"";
+  ligarLinhas("r-dentro");
+  // maiores estouros (visitas orçadas com realizado > orçado)
+  const top=comp.filter(x=>x.c.sit==="estouro").sort((a,b)=>a.c.saldo-b.c.saldo);
+  $("r-top-dica").textContent=`${plural(top.length,"visita orçada passou","visitas orçadas passaram")} do orçado em ${per} (de ${comp.length} com orçado e gasto), do maior estouro para o menor.`;
+  $("r-top").innerHTML=top.length?top.map(({v,c})=>`<tr class="clic" data-k="${esc(v._k)}"><td>${esc(v.pedido)}</td><td class="quebra">${esc(v.obra)}</td><td class="tipo-c">${esc(v.tipo)}</td><td>${fmt(v.ini)}</td><td class="n">${brl(c.orc.total)}</td><td class="n">${brl(c.real.total)}</td><td class="n neg">${brl(c.saldo)}</td><td class="n neg">${pct(c.desvio)}</td></tr>`).join(""):`<tr><td colspan="8">Nenhum estouro no filtro.</td></tr>`;
+  const eO=top.reduce((a,x)=>a+x.c.orc.total,0),eR=top.reduce((a,x)=>a+x.c.real.total,0);
+  $("r-top-tot").innerHTML=top.length?`<tr class="tot"><td colspan="4">Total (${plural(top.length,"visita","visitas")})</td><td class="n">${brl(eO)}</td><td class="n">${brl(eR)}</td><td class="n neg">${brl(eO-eR)}</td><td class="n neg">${pct((eR-eO)/eO*100)}</td></tr>`:"";
   ligarLinhas("r-top");
 }
-["r-ano","r-tipo","r-obra","r-ord"].forEach(id=>$(id).addEventListener("change",renderResumo));
+["r-ano","r-mes-f","r-tipo","r-obra","r-ord"].forEach(id=>$(id).addEventListener("change",renderResumo));
 
 /* ---------- VISITAS ---------- */
 function renderVisitas(){
@@ -212,9 +225,9 @@ function abrirVisita(k,voltar){
 }
 
 /* ---------- resumo geral da obra (todas as visitas no filtro) ---------- */
-function abrirObra(chave,ano,tp){
+function abrirObra(chave,ano,tp,mes){
   const daObra=v=>chave.startsWith("N:")?(!v.idObra&&v.obra===chave.slice(2)):v.idObra===chave;
-  const L=todas().filter(v=>daObra(v)&&(!ano||(v.ini||v.cad||"").startsWith(ano))&&(!tp||v.tipo===tp)).map(v=>({v,c:calc(v)})).filter(x=>x.c.real.total>0||(x.c.orc&&x.c.orc.total))
+  const L=todas().filter(v=>daObra(v)&&noPeriodo(v,ano,mes)&&(!tp||v.tipo===tp)).map(v=>({v,c:calc(v)})).filter(x=>x.c.real.total>0||(x.c.orc&&x.c.orc.total))
     .sort((a,b)=>(a.v.ini||"").localeCompare(b.v.ini||""));
   if(!L.length)return;
   const nome=L[L.length-1].v.obra, id=L[0].v.idObra;
@@ -230,7 +243,7 @@ function abrirObra(chave,ano,tp){
   const AD=[];L.forEach(({v})=>(v.adic||[]).forEach(a=>AD.push({...a,ini:v.ini})));
   const temO=tO>0,saldo=tO-tRc,desv=temO?(tRc-tO)/tO*100:null;
   const cel=n=>`<td class="n ${n<0?"neg":n>0?"pos":""}">${brl(n)}</td>`;
-  const per=[ano||"todos os anos",tp?tp.toLowerCase():""].filter(Boolean).join(" · ");
+  const per=[nomePeriodo(ano,mes),tp?tp.toLowerCase():""].filter(Boolean).join(" · ");
   const sub=(rot,itens)=>itens.map((it,i)=>`<tr><td>${i?"":`<b>${rot}</b>`}</td><td>${esc(it[0])}</td><td class="n">${it[1]}</td><td></td><td></td><td></td></tr>`).join("");
   let h=`<div class="topo"><h3>${esc(id||"")}${id?" - ":""}${esc(nome)}</h3><button type="button" class="btn sec" id="m-x">Fechar</button></div>
   <div style="display:flex;gap:6px;flex-wrap:wrap"><span class="pill ${!temO?"p-neu":tRc>tO?"p-ruim":"p-ok"}">${!temO?"Não orçado":tRc>tO?"Acima do orçado":"Dentro do orçado"}</span><span class="pill p-neu">Resumo geral da obra · ${esc(per)}</span></div>
@@ -254,7 +267,7 @@ function abrirObra(chave,ano,tp){
   if(id)h+=`<div style="display:flex;gap:8px;flex-wrap:wrap"><button type="button" class="btn sec" id="m-filtra">Filtrar o painel por esta obra</button></div>`;
   $("modal-box").innerHTML=h;$("modal").hidden=false;$("modal").scrollTop=0;
   $("m-x").onclick=fechar;
-  $("m-vis").querySelectorAll("tr.clic").forEach(tr=>tr.onclick=()=>abrirVisita(tr.dataset.k,()=>abrirObra(chave,ano,tp)));
+  $("m-vis").querySelectorAll("tr.clic").forEach(tr=>tr.onclick=()=>abrirVisita(tr.dataset.k,()=>abrirObra(chave,ano,tp,mes)));
   if($("m-filtra"))$("m-filtra").onclick=()=>{fechar();$("r-obra").value=id;renderResumo();$("r-kpis").scrollIntoView({behavior:"smooth"});};
 }
 const nf=n=>Number(n||0).toLocaleString("pt-BR",{maximumFractionDigits:2});

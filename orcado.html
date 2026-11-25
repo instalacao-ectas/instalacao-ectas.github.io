@@ -144,6 +144,7 @@ thead th{position:sticky;top:0;background:var(--surface);z-index:1}
     <section id="a-resumo" style="display:flex;flex-direction:column;gap:14px">
       <div class="filtros">
         <label>Ano<select id="r-ano"></select></label>
+        <label>Mês<select id="r-mes-f"></select></label>
         <label>Tipo de visita<select id="r-tipo"></select></label>
         <label>Obra<select id="r-obra"></select></label>
       </div>
@@ -169,8 +170,14 @@ thead th{position:sticky;top:0;background:var(--surface);z-index:1}
         <div class="tabela" style="max-height:620px;overflow-y:auto"><table><thead><tr><th>Obra</th><th class="n">Visitas</th><th>Última visita</th><th class="n">Orçado</th><th class="n">Realizado</th><th class="n">Saldo</th><th class="n">Desvio</th><th>Situação</th></tr></thead><tbody id="r-obras"></tbody><tfoot id="r-tot"></tfoot></table></div>
       </section>
       <section class="card">
+        <h2 id="r-dentro-tit">Obras dentro do orçamento</h2>
+        <p class="dica" id="r-dentro-dica"></p>
+        <div class="tabela" style="max-height:520px;overflow-y:auto"><table><thead><tr><th>Pedido</th><th>Obra</th><th>Tipo</th><th>Início</th><th class="n">Orçado</th><th class="n">Realizado</th><th class="n">Economia</th><th class="n">Desvio</th></tr></thead><tbody id="r-dentro"></tbody><tfoot id="r-dentro-tot"></tfoot></table></div>
+      </section>
+      <section class="card">
         <h2>Maiores estouros de orçamento</h2>
-        <div class="tabela"><table><thead><tr><th>Pedido</th><th>Obra</th><th>Tipo</th><th>Início</th><th class="n">Orçado</th><th class="n">Realizado</th><th class="n">Saldo</th><th class="n">Desvio</th></tr></thead><tbody id="r-top"></tbody></table></div>
+        <p class="dica" id="r-top-dica"></p>
+        <div class="tabela" style="max-height:520px;overflow-y:auto"><table><thead><tr><th>Pedido</th><th>Obra</th><th>Tipo</th><th>Início</th><th class="n">Orçado</th><th class="n">Realizado</th><th class="n">Estouro</th><th class="n">Desvio</th></tr></thead><tbody id="r-top"></tbody><tfoot id="r-top-tot"></tfoot></table></div>
       </section>
     </section>
 
@@ -304,6 +311,6 @@ thead th{position:sticky;top:0;background:var(--surface);z-index:1}
 <script src="config.js?v=8"></script>
 <script src="agenda/config.js?v=3"></script>
 <script src="orcado/config.js?v=2"></script>
-<script src="orcado/orcado.js?v=3" defer></script>
+<script src="orcado/orcado.js?v=6" defer></script>
 </body>
 </html>
