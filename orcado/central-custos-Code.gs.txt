@@ -1,0 +1,241 @@
+/**
+ * Custos de Campo ECTAS (Orçado x Realizado) - Base central
+ * Guarda as visitas de campo (orçado da DIR e realizado lançado pelo supervisor),
+ * o custo de cada colaborador e os parâmetros numa planilha própria do Google.
+ * Substitui a planilha "BD - CUSTOS DE INSTALAÇÃO".
+ *
+ * Mesmo modelo da Agenda Técnica e do Controle de Ferramentas: o painel usa a mesma senha do
+ * Painel do Diário de Obra (conferida na central do Diário). Só o supervisor acessa; não há app de campo.
+ * Salário, benefícios e impostos ficam SÓ nesta planilha: o painel recebe apenas valor hora e valor dia.
+ *
+ * Instalação: cole este código num projeto novo do Apps Script, crie um segundo arquivo "Carga.gs"
+ * com o conteúdo de carga-custos.gs.txt (enviado à parte, NÃO fica no site), rode "configurar" uma vez
+ * e implante como App da Web (executar como: eu; quem pode acessar: qualquer pessoa).
+ */
+
+const NOME_PLANILHA = "Custos de Campo ECTAS - Base";
+const PASTA_BACKUP = "Custos de Campo ECTAS - Backups";
+const BACKUPS_MANTER = 12;
+const TZ = "America/Sao_Paulo";
+const HORAS_MES = 176;   // valor hora = custo mensal ÷ 176
+const DIAS_MES = 21;     // valor dia  = custo mensal ÷ 21
+
+/* Senha única com o Painel do Diário de Obra: quem confere é a central do Diário. */
+const DIARIO_URL = "https://script.google.com/macros/s/AKfycbwm4iDoUQ32nVi2vRhRKCr01LoFGXAkA2zWl3lEWunhhHS2h4_0e3EOEtIzmHSL-LPKrg/exec";
+
+const STATUS = ["Histórico", "Enviado", "Aprovado"];
+
+/* ---------- abas da planilha ---------- */
+const T = {
+  visitas: { aba: "Visitas", cols: ["id", "status", "origem", "tipo", "pedido", "id_obra", "obra", "inicio", "fim", "supervisor",
+      "orcado", "realizado", "saldo", "lancado_em", "aprovado_em", "dados"],
+    tit: ["Código interno", "Status (Histórico, Enviado ou Aprovado)", "Origem", "Tipo da visita", "Pedido", "ID da obra", "Obra", "Início", "Fim", "Supervisor",
+      "Orçado [R$]", "Realizado [R$]", "Saldo [R$]", "Lançado em", "Aprovado em", "Dados completos (não editar)"] },
+  func: { aba: "Colaboradores", cols: ["nome", "nome_agenda", "salario", "beneficios", "impostos", "ativo"],
+    tit: ["Nome", "Nome na Agenda Técnica (se for diferente)", "Salário [R$]", "Benefícios [R$]", "Impostos [R$]", "Ativo (Sim/Não)"] },
+  param: { aba: "Parâmetros", cols: ["chave", "valor", "descricao"], tit: ["Chave", "Valor", "Descrição"] }
+};
+
+/* ---------- utilidades ---------- */
+function prop_(k) { return PropertiesService.getScriptProperties().getProperty(k) || ""; }
+function json_(o) { return ContentService.createTextOutput(JSON.stringify(o)).setMimeType(ContentService.MimeType.JSON); }
+function limpa_(s, max) { return String(s == null ? "" : s).trim().slice(0, max || 2000); }
+function agora_() { return Utilities.formatDate(new Date(), TZ, "yyyy-MM-dd HH:mm"); }
+const num_ = v => { const n = parseFloat(String(v == null ? "" : v).replace(",", ".")); return isFinite(n) ? n : 0; };
+const r2_ = n => Math.round(num_(n) * 100) / 100;
+const ehData_ = s => /^\d{4}-\d{2}-\d{2}$/.test(String(s || ""));
+
+function planilha_() {
+  const pr = PropertiesService.getScriptProperties();
+  const id = pr.getProperty("PLANILHA_ID");
+  if (id) { try { return SpreadsheetApp.openById(id); } catch (e) { } }
+  const ss = SpreadsheetApp.create(NOME_PLANILHA);
+  pr.setProperty("PLANILHA_ID", ss.getId());
+  return ss;
+}
+function aba_(t) {
+  const def = T[t], ss = planilha_();
+  let sh = ss.getSheetByName(def.aba);
+  if (!sh) {
+    sh = ss.insertSheet(def.aba);
+    ["Página1", "Sheet1", "Planilha1"].forEach(n => { const p = ss.getSheetByName(n); if (p && ss.getSheets().length > 1) ss.deleteSheet(p); });
+    sh.getRange(1, 1, 1, def.tit.length).setValues([def.tit]).setFontWeight("bold").setBackground("#002B49").setFontColor("#FFFFFF").setWrap(true);
+    sh.setFrozenRows(1);
+    sh.getRange(1, 1, Math.max(sh.getMaxRows(), 2), def.cols.length).setNumberFormat("@");
+    if (t === "visitas") { sh.hideColumns(1); sh.hideColumns(def.cols.length); }
+  }
+  return sh;
+}
+function valor_(v) { return v instanceof Date ? Utilities.formatDate(v, TZ, "yyyy-MM-dd") : v; }
+function ler_(t) {
+  const def = T[t], sh = aba_(t), n = sh.getLastRow();
+  if (n < 2) return [];
+  return sh.getRange(2, 1, n - 1, def.cols.length).getValues().map((l, i) => {
+    const o = { _linha: i + 2 };
+    def.cols.forEach((c, k) => o[c] = valor_(l[k]));
+    return o;
+  }).filter(o => String(o[def.cols[0]]).trim() !== "");
+}
+function linha_(t, o) { return T[t].cols.map(c => { const x = o[c] == null ? "" : String(o[c]); return /^[=+\-@]/.test(x) ? "'" + x : x; }); }
+function bloco_(sh, ini, n, cols) {
+  const falta = ini + n - 1 - sh.getMaxRows();
+  if (falta > 0) sh.insertRowsAfter(sh.getMaxRows(), falta);
+  return sh.getRange(ini, 1, n, cols);
+}
+function gravar_(t, o, linha) {
+  const def = T[t], sh = aba_(t), v = [linha_(t, o)];
+  if (linha) sh.getRange(linha, 1, 1, def.cols.length).setNumberFormat("@").setValues(v);
+  else bloco_(sh, sh.getLastRow() + 1, 1, def.cols.length).setNumberFormat("@").setValues(v);
+}
+function reescrever_(t, lista) {
+  const def = T[t], sh = aba_(t), n = sh.getLastRow();
+  if (n >= 2) sh.getRange(2, 1, n - 1, def.cols.length).clearContent();
+  if (lista.length) bloco_(sh, 2, lista.length, def.cols.length).setNumberFormat("@").setValues(lista.map(o => linha_(t, o)));
+}
+function pasta_(nome) { const it = DriveApp.getFoldersByName(nome); return it.hasNext() ? it.next() : DriveApp.createFolder(nome); }
+
+/* ---------- regras de cálculo (as mesmas da planilha BD - CUSTOS DE INSTALAÇÃO) ---------- */
+function totais_(v) {
+  const d = v.desl || {}, e = v.est || {}, s = v.serv || {};
+  const carro = num_(d.carro) > 150 ? num_(d.carro) : num_(d.carro) * num_(d.diasCarro);  // antigos gravaram o total
+  const real = carro + ["aluguel", "uber", "passagem", "pedagio", "bagagem", "combustivel"].reduce((a, k) => a + num_(d[k]), 0)
+    + num_(e.hotel) + num_(e.alimentacao) + num_(s.frete) + num_(s.munk)
+    + (v.equipe || []).reduce((a, x) => a + num_(x.vDia) * num_(x.dias) + num_(x.vHora) * (num_(x.h50) * 1.5 + num_(x.h75) * 1.75), 0)
+    + (v.adic || []).reduce((a, x) => a + num_(x.valor), 0);
+  const o = v.orc;
+  const orc = o ? num_(o.desl) + (num_(o.est) || num_(o.hotel) + num_(o.alim)) + num_(o.ht) + num_(o.he) + num_(o.adic) + num_(o.frete) + num_(o.munk) : 0;
+  return { orc: r2_(orc), real: r2_(real), saldo: orc ? r2_(orc - real) : "" };
+}
+
+/* ---------- leitura ---------- */
+function visita_(l) {
+  let v = {};
+  try { v = JSON.parse(String(l.dados || "{}")); } catch (e) { }
+  v.id = String(l.id); v.status = String(l.status || "Histórico");
+  return v;
+}
+function funcs_() {
+  return ler_("func").filter(f => !/^n/i.test(String(f.ativo || ""))).map(f => {
+    const tot = num_(f.salario) + num_(f.beneficios) + num_(f.impostos);
+    return { nome: String(f.nome).trim(), agenda: String(f.nome_agenda || "").trim(), vHora: r2_(tot / HORAS_MES), vDia: r2_(tot / DIAS_MES) };
+  });
+}
+function params_() { const p = {}; ler_("param").forEach(x => p[String(x.chave)] = String(x.valor)); return p; }
+
+/* ---------- entrada ---------- */
+function doGet(e) {
+  const p = (e && e.parameter) || {};
+  if (p.acao === "ping") return json_({ ok: true, app: "Custos de Campo ECTAS" });
+  return json_({ ok: false, erro: "use o Painel do Supervisor" });
+}
+function doPost(e) {
+  let b;
+  try { b = JSON.parse(e.postData.contents); } catch (err) { return json_({ ok: false, erro: "formato inválido" }); }
+  if (!b || !b.painel) return json_({ ok: false, erro: "formato inválido" });
+  return json_(acaoSupervisor_(b));
+}
+
+// senha do painel = senha do Painel do Diário (conferida na central do Diário, com cache de 10 minutos)
+function senhaDiario_(senha) {
+  if (!senha) return { ok: false, erro: "senha incorreta" };
+  const cache = CacheService.getScriptCache();
+  const k = "sd_" + Utilities.base64EncodeWebSafe(Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, "cst|" + senha, Utilities.Charset.UTF_8));
+  if (cache.get(k)) return { ok: true };
+  try {
+    const r = UrlFetchApp.fetch(DIARIO_URL + "?acao=obrasTodas&senha=" + encodeURIComponent(senha) + "&_=" + Date.now(), { muteHttpExceptions: true });
+    const j = JSON.parse(r.getContentText());
+    if (j.ok) { cache.put(k, "1", 600); return { ok: true }; }
+    return { ok: false, erro: j.erro === "senha vencida" ? "senha vencida" : "senha incorreta" };
+  } catch (e) { return { ok: false, erro: "Não consegui falar com a central do Diário de Obra. Tente de novo." }; }
+}
+
+function acaoSupervisor_(b) {
+  const sd = senhaDiario_(b.senha);
+  if (!sd.ok) return sd;
+  if (b.acao === "listar") return listar_();
+  const lock = LockService.getScriptLock(); lock.waitLock(20000);
+  try {
+    switch (b.acao) {
+      case "lancSalvar": return lancSalvar_(b.lancamento || {});
+      case "lancExcluir": return lancExcluir_(String(b.id || ""));
+      case "paramSalvar": return paramSalvar_(b.chave, b.valor);
+      case "backupAgora": garantirGatilhoBackup_(); return backupSemanal();
+    }
+    return { ok: false, erro: "ação desconhecida" };
+  } finally { lock.releaseLock(); }
+}
+
+function listar_() {
+  try { garantirGatilhoBackup_(); } catch (e) { }
+  const todas = ler_("visitas").map(visita_);
+  const p = params_();
+  return { ok: true, planilha: planilha_().getUrl(),
+    visitas: todas.filter(v => v.status === "Histórico"),
+    lancamentos: todas.filter(v => v.status !== "Histórico"),
+    funcionarios: funcs_(), carroDia: num_(p.carro_dia) || 150 };
+}
+
+function lancSalvar_(v) {
+  const id = limpa_(v.id, 40) || ("L" + Utilities.getUuid().replace(/-/g, "").slice(0, 12));
+  if (!limpa_(v.idObra) || !limpa_(v.pedido) || !ehData_(v.ini) || !ehData_(v.fim)) return { ok: false, erro: "Obra, pedido e datas são obrigatórios." };
+  const status = v.status === "Aprovado" ? "Aprovado" : "Enviado";
+  const dados = Object.assign({}, v, { id: id, status: status });
+  delete dados._k; delete dados._app;
+  const t = totais_(dados), atual = ler_("visitas").find(l => String(l.id) === id);
+  if (atual && String(atual.status) === "Histórico") return { ok: false, erro: "Visitas do histórico não são alteradas pelo painel." };
+  gravar_("visitas", { id: id, status: status, origem: "Painel", tipo: limpa_(v.tipo, 40), pedido: limpa_(v.pedido, 30), id_obra: limpa_(v.idObra, 30),
+    obra: limpa_(v.obra, 150), inicio: v.ini, fim: v.fim, supervisor: limpa_(v.supervisor, 80), orcado: t.orc, realizado: t.real, saldo: t.saldo,
+    lancado_em: atual ? atual.lancado_em : agora_(), aprovado_em: status === "Aprovado" ? (atual && atual.aprovado_em || agora_()) : "",
+    dados: JSON.stringify(dados) }, atual ? atual._linha : 0);
+  return { ok: true, id: id, status: status };
+}
+function lancExcluir_(id) {
+  const atual = ler_("visitas").find(l => String(l.id) === id);
+  if (!atual) return { ok: true };
+  if (String(atual.status) === "Histórico") return { ok: false, erro: "Visitas do histórico não são excluídas pelo painel." };
+  aba_("visitas").deleteRow(atual._linha);
+  return { ok: true };
+}
+function paramSalvar_(chave, valor) {
+  if (["carro_dia"].indexOf(chave) < 0) return { ok: false, erro: "parâmetro desconhecido" };
+  const lista = ler_("param"), x = lista.find(p => p.chave === chave);
+  gravar_("param", { chave: chave, valor: String(r2_(valor)), descricao: x ? x.descricao : "" }, x ? x._linha : 0);
+  return { ok: true };
+}
+
+/* ---------- cópia de segurança semanal ---------- */
+function backupSemanal() {
+  const ss = planilha_(), pasta = pasta_(PASTA_BACKUP);
+  DriveApp.getFileById(ss.getId()).makeCopy("Backup " + NOME_PLANILHA + " " + Utilities.formatDate(new Date(), TZ, "yyyy-MM-dd HH'h'mm"), pasta);
+  const arqs = []; const it = pasta.getFiles();
+  while (it.hasNext()) arqs.push(it.next());
+  arqs.sort((a, b) => b.getDateCreated() - a.getDateCreated()).slice(BACKUPS_MANTER).forEach(f => f.setTrashed(true));
+  return { ok: true };
+}
+function garantirGatilhoBackup_() {
+  if (prop_("GATILHO_BACKUP")) return;
+  if (!ScriptApp.getProjectTriggers().some(t => t.getHandlerFunction() === "backupSemanal"))
+    ScriptApp.newTrigger("backupSemanal").timeBased().onWeekDay(ScriptApp.WeekDay.SUNDAY).atHour(3).create();
+  PropertiesService.getScriptProperties().setProperty("GATILHO_BACKUP", "1");
+}
+
+/* ---------- instalação ---------- */
+function configurar() {
+  Object.keys(T).forEach(aba_);
+  if (!ler_("param").length) reescrever_("param", [{ chave: "carro_dia", valor: "150", descricao: "Diária do carro ECTAS [R$] (aba DADOS da planilha antiga)" }]);
+  const C = (typeof CARGA_CUSTOS !== "undefined") ? CARGA_CUSTOS : null;
+  if (!C) { Logger.log("Arquivo Carga.gs não encontrado: as abas foram criadas vazias."); }
+  else {
+    if (!ler_("func").length) reescrever_("func", C.funcionarios.map(f => ({ nome: f.nome, nome_agenda: f.agenda || "", salario: f.salario, beneficios: f.beneficios, impostos: f.impostos, ativo: "Sim" })));
+    if (!ler_("visitas").length) reescrever_("visitas", C.visitas.map(v => {
+      const t = totais_(v);
+      return { id: "h" + v.id, status: "Histórico", origem: "Planilha BD - CUSTOS DE INSTALAÇÃO", tipo: v.tipo, pedido: v.pedido, id_obra: v.idObra, obra: v.obra,
+        inicio: v.ini || "", fim: v.fim || "", supervisor: "", orcado: t.orc, realizado: t.real, saldo: t.saldo, lancado_em: v.cad || "", aprovado_em: "",
+        dados: JSON.stringify(Object.assign({}, v, { id: "h" + v.id, status: "Histórico" })) };
+    }));
+  }
+  garantirGatilhoBackup_();
+  Logger.log("Pronto. Planilha: " + planilha_().getUrl());
+}
+// rode pelo editor se o Google pedir nova autorização para falar com a central do Diário
+function testarLigacaoDiario() { Logger.log(UrlFetchApp.fetch(DIARIO_URL + "?acao=ping").getContentText()); }
