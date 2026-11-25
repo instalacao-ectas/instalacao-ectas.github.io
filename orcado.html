@@ -187,7 +187,7 @@ thead th{position:sticky;top:0;background:var(--surface);z-index:1}
         <label style="flex:2 1 240px">Buscar (pedido, ID ou nome da obra)<input id="v-q" placeholder="Ex.: 5800, 758, Petrasalis"></label>
         <label>Tipo<select id="v-tipo"></select></label>
         <label>Situação<select id="v-sit"><option value="">Todas</option><option value="estouro">Acima do orçado</option><option value="dentro">Dentro do orçado</option><option value="nao">Não orçado</option><option value="pend">Orçado sem gasto</option></select></label>
-        <label>Status<select id="v-st"><option value="">Todos</option><option value="hist">Histórico da planilha</option><option value="Enviado">Aguardando aprovação</option><option value="Aprovado">Aprovado</option></select></label>
+        <label>Status<select id="v-st"><option value="">Todos</option><option value="hist">Histórico da planilha</option><option value="Em campo">Em campo (técnico lançando notas)</option><option value="Enviado">Aguardando aprovação</option><option value="Aprovado">Aprovado</option></select></label>
       </div>
       <section class="card">
         <div class="tabela"><table><thead><tr><th>Pedido</th><th>ID</th><th>Obra</th><th>Tipo</th><th>Início</th><th>Fim</th><th class="n">Orçado</th><th class="n">Realizado</th><th class="n">Saldo</th><th>Situação</th></tr></thead><tbody id="v-body"></tbody></table></div>
@@ -209,8 +209,10 @@ thead th{position:sticky;top:0;background:var(--surface);z-index:1}
               <label>Data início *<input id="i-ini" type="date" class="num"></label>
               <label>Data fim *<input id="i-fim" type="date" class="num"></label>
               <label>Supervisor responsável *<input id="i-sup"></label>
+              <label>Responsável em campo (técnico)<select id="i-resp"></select></label>
             </div>
             <div id="i-regra"></div>
+            <div class="integ" id="i-campo"></div>
           </div>
           <div class="etapa" data-e="1">
             <h2>2. Orçado (DIR)</h2>
@@ -262,6 +264,7 @@ thead th{position:sticky;top:0;background:var(--surface);z-index:1}
           <div class="etapa" data-e="5">
             <h2>6. Gastos adicionais</h2>
             <p class="dica" style="margin:0;font-size:.8rem;color:var(--muted)">Materiais e serviços comprados em campo, no formato “quantidade x descrição”.</p>
+            <div class="integ" id="ad-notas" hidden></div>
             <div class="l-ad"><span class="cab">Descrição</span><span class="cab">Valor [R$]</span><span></span></div>
             <div id="ad-lista" style="display:flex;flex-direction:column;gap:8px"></div>
             <button type="button" class="btn sec" id="ad-add" style="align-self:flex-start">+ Adicionar gasto</button>
@@ -311,6 +314,6 @@ thead th{position:sticky;top:0;background:var(--surface);z-index:1}
 <script src="config.js?v=8"></script>
 <script src="agenda/config.js?v=3"></script>
 <script src="orcado/config.js?v=2"></script>
-<script src="orcado/orcado.js?v=6" defer></script>
+<script src="orcado/orcado.js?v=8" defer></script>
 </body>
 </html>

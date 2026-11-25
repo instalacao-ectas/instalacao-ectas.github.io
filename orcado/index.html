@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Gastos de Campo · ECTAS</title>
+<meta name="theme-color" content="#002B49">
+<link rel="icon" href="../icon-192.png">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800&display=swap">
+<link rel="stylesheet" href="../style.css?v=27">
+<style>
+/* App do técnico: só lança gastos adicionais da visita, pela foto da nota fiscal */
+:root{--ok:#1F9D55;--ok-soft:#DDF3E6;--ruim:#C4320A;--ruim-soft:#FDE6DE;--atn:#B7791F;--atn-soft:#FBF0D9}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){--ok:#3CCB7F;--ok-soft:#173D2B;--ruim:#F2876A;--ruim-soft:#45231A;--atn:#E6B65C;--atn-soft:#3B2F15}}
+[hidden]{display:none!important}
+.apptitle h1{margin:0}
+.btn-top{margin-left:auto;font:inherit;font-weight:700;font-size:.82rem;border:1px solid rgba(255,255,255,.4);background:transparent;color:#fff;border-radius:999px;padding:6px 12px;cursor:pointer}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:14px;display:flex;flex-direction:column;gap:10px}
+.card h2{margin:0;font-size:.78rem;letter-spacing:.08em;text-transform:uppercase;color:var(--accent)}
+.visita{cursor:pointer;text-align:left;font:inherit;color:inherit;width:100%}
+.visita b{font-size:1rem}
+.visita .meta{display:flex;justify-content:space-between;gap:8px;font-size:.82rem;color:var(--muted)}
+.tot{font-weight:800;font-variant-numeric:tabular-nums}
+.btn-foto{font:inherit;font-weight:800;font-size:1.05rem;border:0;border-radius:14px;padding:18px;background:var(--accent);color:var(--accent-fg);display:flex;align-items:center;justify-content:center;gap:10px;cursor:pointer;width:100%}
+.btn-foto span{font-size:1.5rem}
+.nota{display:grid;grid-template-columns:56px 1fr auto;gap:10px;align-items:center;padding:8px 0;border-bottom:1px solid var(--line)}
+.nota:last-child{border-bottom:0}
+.nota img{width:56px;height:56px;object-fit:cover;border-radius:8px;background:var(--chip)}
+.nota .d{font-size:.86rem;line-height:1.3}
+.nota .d small{display:block;color:var(--muted);font-size:.74rem}
+.nota .v{font-weight:800;font-variant-numeric:tabular-nums;text-align:right}
+.pill{display:inline-block;padding:2px 8px;border-radius:999px;font-size:.7rem;font-weight:700}
+.p-ok{background:var(--ok-soft);color:var(--ok)}.p-atn{background:var(--atn-soft);color:var(--atn)}.p-ruim{background:var(--ruim-soft);color:var(--ruim)}
+.prev-foto{width:100%;max-height:320px;object-fit:contain;border-radius:10px;background:#000}
+.barra{height:8px;border-radius:999px;background:var(--chip);overflow:hidden}.barra i{display:block;height:100%;background:var(--accent);width:0;transition:width .3s}
+.valor-in{font-size:1.8rem!important;font-weight:800;text-align:right;font-variant-numeric:tabular-nums}
+.achado{font-size:.8rem;border-radius:8px;padding:8px 10px}
+.achado.ok{background:var(--ok-soft);color:var(--ok)}.achado.atn{background:var(--atn-soft);color:var(--atn)}
+.linha2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.voltar{font:inherit;font-weight:700;border:0;background:transparent;color:var(--accent);padding:0;cursor:pointer;align-self:flex-start}
+.previa{background:var(--atn-soft);color:var(--atn);border-radius:10px;padding:10px 12px;font-weight:600;font-size:.82rem}
+.toast{position:fixed;left:50%;bottom:calc(20px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--marinho);color:#fff;border-radius:10px;padding:10px 16px;font-weight:600;z-index:40;max-width:90vw}
+details.txt-ocr summary{cursor:pointer;font-size:.78rem;color:var(--muted)}
+details.txt-ocr pre{white-space:pre-wrap;font-size:.72rem;max-height:160px;overflow:auto;background:var(--chip);border-radius:8px;padding:8px}
+</style>
+<style>.troca-app{background:#002B49;border-top:1px solid rgba(255,255,255,.12)}.troca-app .troca-wrap{display:flex;gap:6px;padding-block:8px}.troca-app a{flex:1;text-align:center;padding:9px 8px;border-radius:999px;color:#FFFFFF;background:rgba(255,255,255,.10);font:700 13.5px "Montserrat",Arial,sans-serif;text-decoration:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:300px}.troca-app a[aria-current="page"]{background:#66D3CD;color:#002B49}</style>
+</head>
+<body>
+<header class="band">
+  <div class="wrap">
+    <div class="logo"><img src="../logo.png" alt="ECTAS Saneamento"></div>
+    <div class="apptitle"><h1>Gastos de Campo</h1><p id="sub">Acesso do técnico</p></div>
+    <button type="button" class="btn-top" id="b-sair" hidden>Sair</button>
+  </div>
+  <div class="stripe"></div>
+</header>
+<nav class="troca-app" aria-label="Escolher aplicativo"><div class="wrap troca-wrap"><a href="../">Diário de Obra</a><a href="../ferramentas/">Ferramentas</a><a href="../agenda/">Agenda</a><a href="./" aria-current="page">Gastos</a></div></nav>
+<script src="../acesso-ferramentas.js?v=1"></script>
+
+<main>
+<div class="wrap">
+  <div class="previa" id="aviso-previa" hidden></div>
+
+  <!-- login -->
+  <form class="card" id="v-entrar" hidden autocomplete="on">
+    <h2>Entrar</h2>
+    <p class="status" style="margin:0">Use o mesmo usuário e senha do Diário de Obra.</p>
+    <label>Usuário<input id="l-usuario" autocomplete="username"></label>
+    <label id="l-senha-w">Senha<input id="l-senha" type="password" autocomplete="current-password"></label>
+    <label id="l-previa-w" hidden>Entrar como (prévia)<select id="l-previa"></select></label>
+    <button type="submit" class="btn pri" id="b-entrar">Entrar</button>
+    <div class="msg" id="l-msg" role="status"></div>
+  </form>
+
+  <!-- minhas visitas -->
+  <section id="v-lista" hidden style="display:flex;flex-direction:column;gap:12px">
+    <p class="status" style="margin:0" id="ola"></p>
+    <div id="lista-abertas" style="display:flex;flex-direction:column;gap:10px"></div>
+    <details id="det-enc" hidden><summary class="status" style="cursor:pointer">Visitas já encerradas pelo supervisor</summary><div id="lista-enc" style="display:flex;flex-direction:column;gap:10px;margin-top:10px"></div></details>
+  </section>
+
+  <!-- uma visita -->
+  <section id="v-visita" hidden style="display:flex;flex-direction:column;gap:12px">
+    <button type="button" class="voltar" id="b-voltar">← Minhas visitas</button>
+    <div class="card" id="vis-cab"></div>
+    <label class="btn-foto" id="b-foto" for="in-foto"><span>📷</span>Fotografar nota fiscal</label>
+    <input type="file" id="in-foto" accept="image/*" capture="environment" hidden>
+    <label class="status" style="text-align:center;cursor:pointer" for="in-galeria">ou escolher uma foto da galeria</label>
+    <input type="file" id="in-galeria" accept="image/*" hidden>
+    <div class="card"><h2>Notas lançadas</h2><div id="notas"></div></div>
+  </section>
+
+  <!-- leitura / confirmação -->
+  <section id="v-nota" hidden style="display:flex;flex-direction:column;gap:12px">
+    <button type="button" class="voltar" id="b-cancelar">← Cancelar</button>
+    <div class="card">
+      <img id="n-img" class="prev-foto" alt="Foto da nota fiscal">
+      <div id="n-lendo"><p class="status" style="margin:0 0 6px" id="n-etapa">Lendo a nota…</p><div class="barra"><i id="n-barra"></i></div></div>
+    </div>
+    <form class="card" id="n-form" hidden>
+      <h2>Confira os dados da nota</h2>
+      <div class="achado" id="n-achado"></div>
+      <label>Valor da nota [R$]<input id="n-valor" class="num valor-in" inputmode="decimal" autocomplete="off" required></label>
+      <div class="linha2">
+        <label>Data<input id="n-data" type="date" class="num"></label>
+        <label>CNPJ<input id="n-cnpj" class="num" inputmode="numeric"></label>
+      </div>
+      <label>Estabelecimento<input id="n-loja"></label>
+      <label>O que foi comprado *<input id="n-desc" placeholder="Ex.: 2x broca 8mm, fita isolante" required></label>
+      <details class="txt-ocr"><summary>Ver o texto lido da nota</summary><pre id="n-texto"></pre></details>
+      <button type="submit" class="btn pri" id="b-confirmar">Confirmar e enviar</button>
+      <label class="btn sec" for="in-foto" style="text-align:center">Tirar outra foto</label>
+      <div class="msg" id="n-msg" role="status"></div>
+    </form>
+  </section>
+</div>
+</main>
+<div class="toast" id="toast" hidden></div>
+
+<script src="../config.js?v=8"></script>
+<script src="config.js?v=2"></script>
+<script src="lib/tesseract.min.js"></script>
+<script src="campo.js?v=2" defer></script>
+</body>
+</html>

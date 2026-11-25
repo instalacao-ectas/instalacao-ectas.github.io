@@ -5,7 +5,10 @@
  * Substitui a planilha "BD - CUSTOS DE INSTALAÇÃO".
  *
  * Mesmo modelo da Agenda Técnica e do Controle de Ferramentas: o painel usa a mesma senha do
- * Painel do Diário de Obra (conferida na central do Diário). Só o supervisor acessa; não há app de campo.
+ * Painel do Diário de Obra (conferida na central do Diário).
+ * App de campo "Gastos de Campo" (orcado/index.html): o técnico entra com o usuário do Diário de Obra e só
+ * lança notas fiscais (gastos adicionais) nas visitas em que o supervisor o escolheu como responsável em campo,
+ * enquanto a visita está "Em campo". As fotos das notas ficam numa pasta do Drive; a aba Notas guarda os dados.
  * Salário, benefícios e impostos ficam SÓ nesta planilha: o painel recebe apenas valor hora e valor dia.
  *
  * Instalação: cole este código num projeto novo do Apps Script, crie um segundo arquivo "Carga.gs"
@@ -15,6 +18,7 @@
 
 const NOME_PLANILHA = "Custos de Campo ECTAS - Base";
 const PASTA_BACKUP = "Custos de Campo ECTAS - Backups";
+const PASTA_NOTAS = "Custos de Campo ECTAS - Notas fiscais";
 const BACKUPS_MANTER = 12;
 const TZ = "America/Sao_Paulo";
 const HORAS_MES = 176;   // valor hora = custo mensal ÷ 176
@@ -22,17 +26,22 @@ const DIAS_MES = 21;     // valor dia  = custo mensal ÷ 21
 
 /* Senha única com o Painel do Diário de Obra: quem confere é a central do Diário. */
 const DIARIO_URL = "https://script.google.com/macros/s/AKfycbwm4iDoUQ32nVi2vRhRKCr01LoFGXAkA2zWl3lEWunhhHS2h4_0e3EOEtIzmHSL-LPKrg/exec";
+const DIARIO_CHAVE = "ectas-rdo-campo-2026";
 
-const STATUS = ["Histórico", "Enviado", "Aprovado"];
+const STATUS = ["Histórico", "Em campo", "Enviado", "Aprovado"];
 
 /* ---------- abas da planilha ---------- */
 const T = {
   visitas: { aba: "Visitas", cols: ["id", "status", "origem", "tipo", "pedido", "id_obra", "obra", "inicio", "fim", "supervisor",
       "orcado", "realizado", "saldo", "lancado_em", "aprovado_em", "dados"],
-    tit: ["Código interno", "Status (Histórico, Enviado ou Aprovado)", "Origem", "Tipo da visita", "Pedido", "ID da obra", "Obra", "Início", "Fim", "Supervisor",
+    tit: ["Código interno", "Status (Histórico, Em campo, Enviado ou Aprovado)", "Origem", "Tipo da visita", "Pedido", "ID da obra", "Obra", "Início", "Fim", "Supervisor",
       "Orçado [R$]", "Realizado [R$]", "Saldo [R$]", "Lançado em", "Aprovado em", "Dados completos (não editar)"] },
   func: { aba: "Colaboradores", cols: ["nome", "nome_agenda", "salario", "beneficios", "impostos", "ativo"],
     tit: ["Nome", "Nome na Agenda Técnica (se for diferente)", "Salário [R$]", "Benefícios [R$]", "Impostos [R$]", "Ativo (Sim/Não)"] },
+  notas: { aba: "Notas", cols: ["id", "visita", "obra", "data", "valor", "descricao", "estabelecimento", "cnpj", "tecnico", "login", "enviada_em",
+      "recusada", "foto_id", "foto_link", "miniatura", "leitura"],
+    tit: ["Código da nota", "Código da visita", "Obra", "Data da nota", "Valor [R$]", "O que foi comprado", "Estabelecimento", "CNPJ", "Técnico", "Login do técnico",
+      "Enviada em", "Recusada pelo supervisor", "Foto (ID no Drive)", "Foto da nota", "Miniatura (não editar)", "Texto lido da nota"] },
   param: { aba: "Parâmetros", cols: ["chave", "valor", "descricao"], tit: ["Chave", "Valor", "Descrição"] }
 };
 
@@ -63,6 +72,7 @@ function aba_(t) {
     sh.setFrozenRows(1);
     sh.getRange(1, 1, Math.max(sh.getMaxRows(), 2), def.cols.length).setNumberFormat("@");
     if (t === "visitas") { sh.hideColumns(1); sh.hideColumns(def.cols.length); }
+    if (t === "notas") { sh.hideColumns(13); sh.hideColumns(15); sh.hideColumns(16); }
   }
   return sh;
 }
@@ -101,7 +111,8 @@ function totais_(v) {
   const real = carro + ["aluguel", "uber", "passagem", "pedagio", "bagagem", "combustivel"].reduce((a, k) => a + num_(d[k]), 0)
     + num_(e.hotel) + num_(e.alimentacao) + num_(s.frete) + num_(s.munk)
     + (v.equipe || []).reduce((a, x) => a + num_(x.vDia) * num_(x.dias) + num_(x.vHora) * (num_(x.h50) * 1.5 + num_(x.h75) * 1.75), 0)
-    + (v.adic || []).reduce((a, x) => a + num_(x.valor), 0);
+    + (v.adic || []).reduce((a, x) => a + num_(x.valor), 0)
+    + (v.notas || []).filter(n => !n.recusada).reduce((a, n) => a + num_(n.valor), 0);
   const o = v.orc;
   const orc = o ? num_(o.desl) + (num_(o.est) || num_(o.hotel) + num_(o.alim)) + num_(o.ht) + num_(o.he) + num_(o.adic) + num_(o.frete) + num_(o.munk) : 0;
   return { orc: r2_(orc), real: r2_(real), saldo: orc ? r2_(orc - real) : "" };
@@ -121,6 +132,17 @@ function funcs_() {
   });
 }
 function params_() { const p = {}; ler_("param").forEach(x => p[String(x.chave)] = String(x.valor)); return p; }
+// notas fiscais lançadas em campo, agrupadas por visita (sem a foto: só a miniatura)
+function nota_(n) {
+  return { id: String(n.id), valor: r2_(n.valor), desc: String(n.descricao || ""), data: String(n.data || ""), loja: String(n.estabelecimento || ""),
+    cnpj: String(n.cnpj || ""), tecnico: String(n.tecnico || ""), login: String(n.login || ""), enviadaEm: String(n.enviada_em || ""),
+    recusada: /^s/i.test(String(n.recusada || "")), mini: String(n.miniatura || ""), temFoto: !!String(n.foto_id || "") };
+}
+function notasPorVisita_() {
+  const m = {};
+  ler_("notas").forEach(n => { const k = String(n.visita); (m[k] = m[k] || []).push(nota_(n)); });
+  return m;
+}
 
 /* ---------- entrada ---------- */
 function doGet(e) {
@@ -131,6 +153,7 @@ function doGet(e) {
 function doPost(e) {
   let b;
   try { b = JSON.parse(e.postData.contents); } catch (err) { return json_({ ok: false, erro: "formato inválido" }); }
+  if (b && b.campo) return json_(acaoCampo_(b));
   if (!b || !b.painel) return json_({ ok: false, erro: "formato inválido" });
   return json_(acaoSupervisor_(b));
 }
@@ -160,6 +183,7 @@ function acaoSupervisor_(b) {
       case "lancExcluir": return lancExcluir_(String(b.id || ""));
       case "paramSalvar": return paramSalvar_(b.chave, b.valor);
       case "backupAgora": garantirGatilhoBackup_(); return backupSemanal();
+      case "notaFoto": return notaFoto_(String(b.id || ""), null);
     }
     return { ok: false, erro: "ação desconhecida" };
   } finally { lock.releaseLock(); }
@@ -168,6 +192,8 @@ function acaoSupervisor_(b) {
 function listar_() {
   try { garantirGatilhoBackup_(); } catch (e) { }
   const todas = ler_("visitas").map(visita_);
+  const nv = notasPorVisita_();
+  todas.forEach(v => { if (v.status !== "Histórico") v.notas = nv[v.id] || []; });
   const p = params_();
   return { ok: true, planilha: planilha_().getUrl(),
     visitas: todas.filter(v => v.status === "Histórico"),
@@ -178,22 +204,38 @@ function listar_() {
 function lancSalvar_(v) {
   const id = limpa_(v.id, 40) || ("L" + Utilities.getUuid().replace(/-/g, "").slice(0, 12));
   if (!limpa_(v.idObra) || !limpa_(v.pedido) || !ehData_(v.ini) || !ehData_(v.fim)) return { ok: false, erro: "Obra, pedido e datas são obrigatórios." };
-  const status = v.status === "Aprovado" ? "Aprovado" : "Enviado";
-  const dados = Object.assign({}, v, { id: id, status: status });
+  const status = v.status === "Aprovado" ? "Aprovado" : v.status === "Em campo" ? "Em campo" : "Enviado";
+  const resp = v.resp && limpa_(v.resp.login) ? { login: limpa_(v.resp.login, 60).toLowerCase(), nome: limpa_(v.resp.nome, 100) } : null;
+  if (status === "Em campo" && !resp) return { ok: false, erro: "Escolha o responsável em campo antes de abrir a visita para o técnico." };
+  const dados = Object.assign({}, v, { id: id, status: status, resp: resp });
   delete dados._k; delete dados._app;
-  const t = totais_(dados), atual = ler_("visitas").find(l => String(l.id) === id);
+  const atual = ler_("visitas").find(l => String(l.id) === id);
   if (atual && String(atual.status) === "Histórico") return { ok: false, erro: "Visitas do histórico não são alteradas pelo painel." };
+  // notas de campo: ficam na aba Notas; do painel só vale a marcação de recusada
+  const rec = {}; (v.notas || []).forEach(n => { if (n && n.id) rec[String(n.id)] = !!n.recusada; });
+  const sh = aba_("notas");
+  ler_("notas").filter(n => String(n.visita) === id && String(n.id) in rec).forEach(n => {
+    const r = rec[String(n.id)] ? "Sim" : "";
+    if (String(n.recusada || "") !== r) sh.getRange(n._linha, T.notas.cols.indexOf("recusada") + 1).setValue(r);
+  });
+  delete dados.notas;
+  const notas = notasPorVisita_()[id] || [];
+  const t = totais_(Object.assign({}, dados, { notas: notas }));
   gravar_("visitas", { id: id, status: status, origem: "Painel", tipo: limpa_(v.tipo, 40), pedido: limpa_(v.pedido, 30), id_obra: limpa_(v.idObra, 30),
     obra: limpa_(v.obra, 150), inicio: v.ini, fim: v.fim, supervisor: limpa_(v.supervisor, 80), orcado: t.orc, realizado: t.real, saldo: t.saldo,
     lancado_em: atual ? atual.lancado_em : agora_(), aprovado_em: status === "Aprovado" ? (atual && atual.aprovado_em || agora_()) : "",
     dados: JSON.stringify(dados) }, atual ? atual._linha : 0);
-  return { ok: true, id: id, status: status };
+  return { ok: true, id: id, status: status, notas: notas };
 }
 function lancExcluir_(id) {
   const atual = ler_("visitas").find(l => String(l.id) === id);
   if (!atual) return { ok: true };
   if (String(atual.status) === "Histórico") return { ok: false, erro: "Visitas do histórico não são excluídas pelo painel." };
   aba_("visitas").deleteRow(atual._linha);
+  ler_("notas").filter(n => String(n.visita) === id).reverse().forEach(n => {
+    try { if (n.foto_id) DriveApp.getFileById(String(n.foto_id)).setTrashed(true); } catch (e) { }
+    aba_("notas").deleteRow(n._linha);
+  });
   return { ok: true };
 }
 function paramSalvar_(chave, valor) {
@@ -201,6 +243,108 @@ function paramSalvar_(chave, valor) {
   const lista = ler_("param"), x = lista.find(p => p.chave === chave);
   gravar_("param", { chave: chave, valor: String(r2_(valor)), descricao: x ? x.descricao : "" }, x ? x._linha : 0);
   return { ok: true };
+}
+
+/* ---------- app de campo (técnico): só notas fiscais das visitas em que é o responsável ---------- */
+// pergunta à central do Diário quem é o dono do token (cache de 10 minutos); null = inválido, false = sem resposta
+function usuarioDiario_(tokenDiario) {
+  if (!tokenDiario) return null;
+  const cache = CacheService.getScriptCache();
+  const k = "td_" + Utilities.base64EncodeWebSafe(Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, "cst|" + tokenDiario, Utilities.Charset.UTF_8));
+  const c = cache.get(k);
+  if (c) return JSON.parse(c);
+  try {
+    const r = UrlFetchApp.fetch(DIARIO_URL, { method: "post", contentType: "text/plain;charset=utf-8", muteHttpExceptions: true,
+      payload: JSON.stringify({ acao: "obras", chave: DIARIO_CHAVE, token: String(tokenDiario) }) });
+    const j = JSON.parse(r.getContentText());
+    if (j.ok && j.usuario && j.usuario.login) {
+      const u = { login: String(j.usuario.login).toLowerCase(), nome: String(j.usuario.nome || j.usuario.login) };
+      cache.put(k, JSON.stringify(u), 600); return u;
+    }
+    if (j.erro === "sessao") return null;
+    return false;
+  } catch (e) { return false; }
+}
+function acaoCampo_(b) {
+  const u = usuarioDiario_(b.tokenDiario);
+  if (u === false) return { ok: false, erro: "Não consegui falar com a central do Diário de Obra. Tente de novo." };
+  if (!u) return { ok: false, erro: "sessao" };
+  if (b.acao === "campoListar") return campoListar_(u);
+  if (b.acao === "notaFoto") return notaFoto_(String(b.id || ""), u);
+  const lock = LockService.getScriptLock(); lock.waitLock(20000);
+  try {
+    if (b.acao === "notaSalvar") return notaSalvar_(u, String(b.visita || ""), b.nota || {});
+    if (b.acao === "notaExcluir") return notaExcluir_(u, String(b.visita || ""), String(b.nota || ""));
+    return { ok: false, erro: "ação desconhecida" };
+  } finally { lock.releaseLock(); }
+}
+const doTecnico_ = (v, u) => v.resp && String(v.resp.login || "").toLowerCase() === u.login;
+function campoListar_(u) {
+  const nv = notasPorVisita_(), limite = Utilities.formatDate(new Date(Date.now() - 45 * 864e5), TZ, "yyyy-MM-dd");
+  const visitas = ler_("visitas").filter(l => String(l.status) !== "Histórico").map(visita_)
+    .filter(v => doTecnico_(v, u) && (v.status === "Em campo" || String(v.fim || "") >= limite))
+    .map(v => ({ id: v.id, status: v.status, pedido: v.pedido, idObra: v.idObra, obra: v.obra, tipo: v.tipo, ini: v.ini, fim: v.fim,
+      notas: (nv[v.id] || []).filter(n => n.login === u.login) }))
+    .sort((a, b) => String(b.ini).localeCompare(String(a.ini)));
+  return { ok: true, usuario: u, visitas: visitas };
+}
+function visitaAberta_(u, id) {
+  const l = ler_("visitas").find(x => String(x.id) === id);
+  if (!l) return { erro: "Visita não encontrada." };
+  const v = visita_(l);
+  if (!doTecnico_(v, u)) return { erro: "Você não é o responsável em campo desta visita." };
+  if (v.status !== "Em campo") return { erro: "Esta visita já foi encerrada pelo supervisor." };
+  return { v: v };
+}
+function notaSalvar_(u, idVisita, n) {
+  const a = visitaAberta_(u, idVisita);
+  if (a.erro) return { ok: false, erro: a.erro };
+  const valor = r2_(n.valor), desc = limpa_(n.desc, 300);
+  if (!(valor > 0)) return { ok: false, erro: "Informe o valor da nota." };
+  if (!desc) return { ok: false, erro: "Diga o que foi comprado." };
+  const id = "N" + Utilities.getUuid().replace(/-/g, "").slice(0, 12);
+  let fotoId = "", link = "";
+  const m = String(n.foto || "").match(/^data:image\/(jpeg|png|webp);base64,(.+)$/);
+  if (m) {
+    const blob = Utilities.newBlob(Utilities.base64Decode(m[2]), "image/" + m[1],
+      ["Nota", a.v.idObra, a.v.pedido, limpa_(n.data, 10) || "", u.login, id].join(" ") + (m[1] === "png" ? ".png" : ".jpg"));
+    const f = pasta_(PASTA_NOTAS).createFile(blob);
+    fotoId = f.getId(); link = f.getUrl();
+  }
+  const mini = /^data:image\/jpeg;base64,/.test(String(n.mini || "")) && String(n.mini).length < 40000 ? String(n.mini) : "";
+  gravar_("notas", { id: id, visita: idVisita, obra: limpa_(a.v.idObra + " - " + a.v.obra, 180), data: ehData_(n.data) ? n.data : Utilities.formatDate(new Date(), TZ, "yyyy-MM-dd"),
+    valor: String(valor).replace(".", ","), descricao: desc, estabelecimento: limpa_(n.loja, 120), cnpj: limpa_(n.cnpj, 20), tecnico: u.nome, login: u.login,
+    enviada_em: agora_(), recusada: "", foto_id: fotoId, foto_link: link, miniatura: mini, leitura: limpa_(n.leitura, 1500) }, 0);
+  atualizarTotais_(idVisita);
+  return { ok: true, id: id };
+}
+function notaExcluir_(u, idVisita, idNota) {
+  const a = visitaAberta_(u, idVisita);
+  if (a.erro) return { ok: false, erro: a.erro };
+  const n = ler_("notas").find(x => String(x.id) === idNota && String(x.visita) === idVisita);
+  if (!n) return { ok: true };
+  if (String(n.login) !== u.login) return { ok: false, erro: "Esta nota não é sua." };
+  if (/^s/i.test(String(n.recusada || ""))) return { ok: false, erro: "Nota já analisada pelo supervisor." };
+  try { if (n.foto_id) DriveApp.getFileById(String(n.foto_id)).setTrashed(true); } catch (e) { }
+  aba_("notas").deleteRow(n._linha);
+  atualizarTotais_(idVisita);
+  return { ok: true };
+}
+// foto completa da nota: o supervisor vê todas; o técnico só as dele
+function notaFoto_(idNota, u) {
+  const n = ler_("notas").find(x => String(x.id) === idNota);
+  if (!n || !n.foto_id) return { ok: false, erro: "Foto não encontrada." };
+  if (u && String(n.login) !== u.login) return { ok: false, erro: "Esta nota não é sua." };
+  const b = DriveApp.getFileById(String(n.foto_id)).getBlob();
+  return { ok: true, foto: "data:" + b.getContentType() + ";base64," + Utilities.base64Encode(b.getBytes()) };
+}
+// mantém orçado, realizado e saldo da aba Visitas em dia quando entra ou sai uma nota
+function atualizarTotais_(idVisita) {
+  const l = ler_("visitas").find(x => String(x.id) === idVisita);
+  if (!l) return;
+  const v = visita_(l); v.notas = notasPorVisita_()[idVisita] || [];
+  const t = totais_(v), c = T.visitas.cols;
+  aba_("visitas").getRange(l._linha, c.indexOf("orcado") + 1, 1, 3).setValues([[String(t.orc), String(t.real), String(t.saldo)]]);
 }
 
 /* ---------- cópia de segurança semanal ---------- */
@@ -223,7 +367,9 @@ function garantirGatilhoBackup_() {
 function configurar() {
   Object.keys(T).forEach(aba_);
   if (!ler_("param").length) reescrever_("param", [{ chave: "carro_dia", valor: "150", descricao: "Diária do carro ECTAS [R$] (aba DADOS da planilha antiga)" }]);
-  const C = (typeof CARGA_CUSTOS !== "undefined") ? CARGA_CUSTOS : null;
+  let C = (typeof CARGA_CUSTOS !== "undefined") ? CARGA_CUSTOS : null;
+  if (!C && typeof CARGA_CUSTOS_GZ !== "undefined")   // versão compactada (gzip + base64)
+    C = JSON.parse(Utilities.ungzip(Utilities.newBlob(Utilities.base64Decode(CARGA_CUSTOS_GZ), "application/x-gzip")).getDataAsString("UTF-8"));
   if (!C) { Logger.log("Arquivo Carga.gs não encontrado: as abas foram criadas vazias."); }
   else {
     if (!ler_("func").length) reescrever_("func", C.funcionarios.map(f => ({ nome: f.nome, nome_agenda: f.agenda || "", salario: f.salario, beneficios: f.beneficios, impostos: f.impostos, ativo: "Sim" })));

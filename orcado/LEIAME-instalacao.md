@@ -50,3 +50,12 @@ Central instalada e ligada em 25/11/2026 (projeto **Custos de Campo ECTAS - Cent
 
 Ao trocar o código do Apps Script, use **Implantar > Gerenciar implantações > Editar > Nova versão**. Assim o endereço `/exec` continua o mesmo.
 Se o Google pedir nova autorização, rode a função **testarLigacaoDiario** pelo editor e aprove.
+
+## Gastos de Campo (notas fiscais pelo técnico)
+
+- App do técnico: **https://instalacao-ectas.github.io/orcado/** (botão **Gastos** na barra dos apps de campo). Entra com o usuário e a senha do Diário de Obra.
+- No painel, ao lançar a visita, o supervisor escolhe o **Responsável em campo** e clica em **Abrir visita para o técnico** (status "Em campo").
+- O técnico só vê as visitas em que é o responsável e só lança notas fiscais: fotografa, o celular lê o valor (leitura feita no próprio aparelho), ele confere e envia.
+- As notas entram nos gastos adicionais da visita. O supervisor pode recusar uma nota, completa os outros custos e envia para aprovação; a visita fecha para o técnico.
+- Na planilha da central, a aba **Notas** guarda cada nota (com link da foto). As fotos ficam na pasta do Drive "Custos de Campo ECTAS - Notas fiscais".
+- Como a central passou a criar arquivos no Drive, na primeira vez depois da atualização o Google pode pedir nova autorização: rode **testarLigacaoDiario** pelo editor e aprove.

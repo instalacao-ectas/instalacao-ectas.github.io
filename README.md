@@ -17,5 +17,6 @@ Onde a equipe externa está alocada. Mesmo usuário e senha do Diário de Obra; 
 ## Orçado x Realizado
 
 - Supervisor: **https://instalacao-ectas.github.io/orcado.html** (botão Orçado x Realizado na barra do topo)
+- Técnico: **https://instalacao-ectas.github.io/orcado/** (Gastos de Campo: só lança notas fiscais por foto nas visitas em que é o responsável em campo)
 
 Custos de campo por visita: orçado na DIR x realizado. Mesma senha do Painel do Diário; os dados ficam só na central (nada de custo neste repositório). Instalação em `orcado/LEIAME-instalacao.md`.
