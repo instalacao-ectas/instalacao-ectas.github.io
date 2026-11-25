@@ -2,7 +2,7 @@
    Mesma senha do Painel do Diário de Obra. Lança e edita a programação, cuida dos cadastros e das obras em espera. */
 (function(){
 "use strict";
-const VERSAO="18/11/2026 12:30";
+const VERSAO="25/11/2026 08:30";
 const $=id=>document.getElementById(id);
 const A=window.AG;
 const {h,hoje,addDias,segunda,dow,br,brA,dif,ehData,rotulo,cls,norm,kvs,vazio,indexar,grade,ondeEsta,modal,fechar,TIPOS,COM_OBRA,DOWL}=A;
@@ -14,7 +14,7 @@ const lsg=(k,d)=>{try{const v=localStorage.getItem(k);return v==null?d:JSON.pars
 const lss=(k,v)=>{try{localStorage.setItem(k,JSON.stringify(v));}catch(e){}};
 
 let senha="",D=null,idx=new Map();
-const S={tab:"agenda",ini:segunda(hoje()),semanas:lsg("agd-sup-semanas",2),destaque:"",dia:null,F:{func:"",tipo:"",q:"",de:addDias(hoje(),-7),ate:""},obraQ:"",cad:null};
+const S={clima:lsg("agd-sup-clima",true),tab:"agenda",ini:segunda(hoje()),semanas:lsg("agd-sup-semanas",2),destaque:"",dia:null,F:{func:"",tipo:"",q:"",de:addDias(hoje(),-7),ate:""},obraQ:"",cad:null};
 
 /* ---------- central ---------- */
 async function post(corpo){
@@ -65,10 +65,45 @@ function render(){
   if(foco){const el=$(foco);if(el){el.focus();try{if(pos!=null)el.setSelectionRange(pos,pos);}catch(e){}}}
 }
 function tAgenda(){
-  return grade({nomes:ativos(),idx,ini:S.ini,semanas:S.semanas,destaque:S.destaque,editavel:true,
-    extraBotoes:[h("button",{class:"btn small",type:"button",onclick:compartilhar},"Compartilhar disponibilidade"),h("button",{class:"btn primary small",type:"button",onclick:()=>formLanc(null,{})},"+ Lançar")],
+  const C=window.CLIMA,ligado=S.clima&&!!C,hj=hoje(),limite=addDias(hj,(C?C.DIAS_PREV:16)-1),faltam=new Set();
+  const cidObra=new Map((D.obras||[]).filter(o=>o.cidade).map(o=>[norm(o.nome),o.cidade]));
+  const cidadeDe=it=>it.cidade||cidObra.get(norm(it.obra))||"";
+  const equipe=(obra,d)=>[...new Set(D.lancamentos.filter(x=>x.obra===obra&&x.ini<=d&&x.fim>=d).map(x=>x.func))].filter(n=>{const r=A.resolver(idx,n,d);return r&&r.it.obra===obra;});
+  /* faixa do tempo dentro de cada dia de obra (de hoje até o fim da previsão) */
+  const decorar=(bl,nm,d,it)=>{
+    if(!ligado||!COM_OBRA.has(it.tipo)||d<hj||d>limite)return;
+    const txt=bl.textContent;bl.textContent="";bl.classList.add("comtempo");bl.append(h("span",{class:"t",text:txt}));
+    const cid=cidadeDe(it);
+    if(!cid){bl.append(h("div",{class:"tempo vazio",title:"Cadastre a cidade da obra em Cadastros > Obras",text:"sem cidade"}));return;}
+    const pv=C.prev(cid,d);
+    if(pv===undefined){faltam.add(cid);bl.append(h("div",{class:"tempo vazio",text:"buscando previsão…"}));return;}
+    if(pv===null){bl.append(h("div",{class:"tempo vazio",title:cid,text:C.naoEncontrada(cid)?"cidade não encontrada":"sem previsão"}));return;}
+    bl.append(C.faixa(pv,()=>C.detalhe(it.obra||it.tipo,cid,d,pv,equipe(it.obra,d))));
+  };
+  /* alertas dos próximos 7 dias, para todos os técnicos ativos */
+  let topo=null;
+  if(ligado){
+    const al=new Map();
+    for(const n of ativos())for(let i=0;i<7;i++){
+      const d=addDias(hj,i),r=A.resolver(idx,n,d);if(!r||!COM_OBRA.has(r.it.tipo))continue;
+      const cid=cidadeDe(r.it);if(!cid)continue;
+      const pv=C.prev(cid,d);if(pv===undefined){faltam.add(cid);continue;}
+      if(!pv||!pv.risco)continue;
+      const k=r.it.obra||cid;if(!al.has(k))al.set(k,{cid,dias:new Map(),eq:new Set()});
+      const a=al.get(k);a.eq.add(n);if(!a.dias.has(d)||pv.risco==="alto")a.dias.set(d,pv);
+    }
+    if(al.size)topo=h("div",{class:"alertastempo"},h("h3",{text:"Alertas de tempo · próximos 7 dias"}),
+      [...al.entries()].map(([obra,a])=>h("div",{class:"al"},h("b",{text:obra}),h("span",{class:"mini",text:a.cid+" · "+[...a.eq].join(", ")}),
+        h("span",{class:"dias"},[...a.dias.entries()].sort().map(([d,pv])=>h("span",{class:"pil "+pv.risco,text:A.DOW[dow(d)]+" "+br(d)+" · "+(pv.c>=95?"trovoada":pv.p+"% "+(pv.mm>=10?Math.round(pv.mm)+" mm":"de chuva"))}))))));
+  }
+  const chave=h("label",{class:"toggle"},h("input",{type:"checkbox",checked:S.clima,onchange:e=>{S.clima=e.target.checked;lss("agd-sup-clima",S.clima);render();}}),"Previsão do tempo");
+  const el=grade({nomes:ativos(),idx,ini:S.ini,semanas:S.semanas,destaque:S.destaque,editavel:true,decorar,topo,legendaExtra:ligado?C.legenda():null,
+    extraBotoes:[C?chave:null,h("button",{class:"btn small",type:"button",onclick:compartilhar},"Compartilhar disponibilidade"),h("button",{class:"btn primary small",type:"button",onclick:()=>formLanc(null,{})},"+ Lançar")],
     aoClicar:(nm,d,r)=>{if(r)formLanc(r.it);else formLanc(null,{func:[nm],ini:d,fim:d});},
     aoMudar:o=>{Object.assign(S,o);if(o.semanas)lss("agd-sup-semanas",o.semanas);render();}});
+  if(ligado&&faltam.size)C.garantir([...faltam]).then(novo=>{if(novo&&S.tab==="agenda")render();});
+  if(ligado)el.append(h("p",{class:"mini",style:"margin:10px 0 0",text:"Previsão do tempo: Open-Meteo (modelos de institutos como ECMWF e NOAA), até 16 dias, pela cidade do lançamento ou da obra. Toque na faixa do tempo para ver os detalhes."}));
+  return el;
 }
 function tHoje(){return ondeEsta({nomes:ativos(),idx,dia:S.dia,aoMudar:d=>{S.dia=d;render();}});}
 

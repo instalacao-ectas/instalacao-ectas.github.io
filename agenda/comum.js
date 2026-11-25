@@ -119,14 +119,15 @@ function grade(o){
       const txt=rotulo(r.it);
       const acerto=q&&(norm(txt).includes(q)||norm(r.it.cidade).includes(q)||norm(nm).includes(q));
       td.title=nm+" · "+DOWL[dow(d)]+" "+br(d)+"\n"+r.it.tipo+(r.it.obra?" · "+r.it.obra:"")+(r.it.cidade?" · "+r.it.cidade:"")+" · "+(r.it.status||"");
-      td.append(h("div",{class:"bloco "+cls(r.it)+(acerto?" acerto":""),text:txt}));
+      const bl=h("div",{class:"bloco "+cls(r.it)+(acerto?" acerto":""),text:txt});
+      td.append(bl);if(o.decorar)o.decorar(bl,nm,d,r.it);
       if(r.n>1)td.append(h("span",{class:"dup",title:"Há "+r.n+" lançamentos neste dia; vale o salvo por último."}));
     }else td.append(h("div",{class:"bloco livre",text:o.editavel?"+":""}));
     return td;
   })));
   const soma=h("tr",{class:"soma"},h("td",{class:"nome",text:"Em campo · base · ausentes"}),
     cont.map((c,i)=>h("td",{},dow(dias[i])%6===0&&!c.c&&!c.b&&!c.a?"":h("span",{},h("b",{text:c.c})," · "+c.b+" · "+c.a))));
-  return h("div",{},barra,leg,h("div",{class:"gradebox"+(q?" com-destaque":"")},h("table",{class:"grade"},cab,h("tbody",{},linhas,soma))));
+  return h("div",{},barra,o.topo||null,leg,o.legendaExtra||null,h("div",{class:"gradebox"+(q?" com-destaque":"")},h("table",{class:"grade"},cab,h("tbody",{},linhas,soma))));
 }
 
 /* ---------- onde está a equipe ---------- */
