@@ -43,9 +43,13 @@ th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);white
 th{font-size:.72rem;text-transform:uppercase;letter-spacing:.05em;color:var(--muted)}
 td.n,th.n{text-align:right;font-variant-numeric:tabular-nums}
 td.quebra{white-space:normal;min-width:180px}
+td.tipo-c{white-space:normal;font-size:.76rem;min-width:100px}
+td.quebra small{display:block;color:var(--muted);font-size:.74rem}
 tbody tr.clic{cursor:pointer}
 tbody tr.clic:hover{background:var(--chip)}
 tr.tot td{font-weight:800;border-top:2px solid var(--fg)}
+tfoot tr.tot td{position:sticky;bottom:0;background:var(--surface)}
+thead th{position:sticky;top:0;background:var(--surface);z-index:1}
 .pos{color:var(--ok);font-weight:700}.neg{color:var(--ruim);font-weight:700}
 .pill{display:inline-block;padding:2px 9px;border-radius:999px;font-size:.72rem;font-weight:700;white-space:nowrap}
 .p-ok{background:var(--ok-soft);color:var(--ok)}.p-ruim{background:var(--ruim-soft);color:var(--ruim)}.p-atn{background:var(--atn-soft);color:var(--atn)}.p-neu{background:var(--neutro);color:var(--muted)}.p-app{background:var(--chip);color:var(--accent)}
@@ -158,6 +162,12 @@ tr.tot td{font-weight:800;border-top:2px solid var(--fg)}
           <div class="tabela"><table><tbody id="r-tipos"></tbody></table></div>
         </section>
       </div>
+      <section class="card">
+        <div class="topo"><h2 id="r-tit">Cenário das obras no período</h2>
+          <label style="flex-direction:row;align-items:center;gap:8px">Ordenar<select id="r-ord" style="width:auto"><option value="real">Maior realizado</option><option value="estouro">Maior estouro</option><option value="data">Mais recentes</option><option value="obra">Obra (A a Z)</option></select></label></div>
+        <p class="dica" id="r-dica"></p>
+        <div class="tabela" style="max-height:620px;overflow-y:auto"><table><thead><tr><th>Obra</th><th class="n">Visitas</th><th>Última visita</th><th class="n">Orçado</th><th class="n">Realizado</th><th class="n">Saldo</th><th class="n">Desvio</th><th>Situação</th></tr></thead><tbody id="r-obras"></tbody><tfoot id="r-tot"></tfoot></table></div>
+      </section>
       <section class="card">
         <h2>Maiores estouros de orçamento</h2>
         <div class="tabela"><table><thead><tr><th>Pedido</th><th>Obra</th><th>Tipo</th><th>Início</th><th class="n">Orçado</th><th class="n">Realizado</th><th class="n">Saldo</th><th class="n">Desvio</th></tr></thead><tbody id="r-top"></tbody></table></div>
@@ -294,6 +304,6 @@ tr.tot td{font-weight:800;border-top:2px solid var(--fg)}
 <script src="config.js?v=8"></script>
 <script src="agenda/config.js?v=3"></script>
 <script src="orcado/config.js?v=2"></script>
-<script src="orcado/orcado.js?v=1" defer></script>
+<script src="orcado/orcado.js?v=2" defer></script>
 </body>
 </html>

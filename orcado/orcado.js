@@ -143,11 +143,28 @@ function renderResumo(){
   $("r-mes").innerHTML=ks.length?ks.map(k=>`<div class="c" title="${esc(brl(m[k]))}"><em>${esc(brlK(m[k]).replace("R$ ",""))}</em><i style="height:${m[k]/mm*120}px"></i><span>${MESES[+k.slice(5)-1]}/${k.slice(2,4)}</span></div>`).join(""):`<p class="status">Sem dados no filtro.</p>`;
   const t={};L.forEach(x=>{const z=t[x.v.tipo]=t[x.v.tipo]||{n:0,r:0};z.n++;z.r+=x.c.real.total;});
   $("r-tipos").innerHTML=Object.entries(t).sort((a,b)=>b[1].r-a[1].r).map(([k,x])=>`<tr><td>${esc(k)}</td><td class="n">${plural(x.n,"visita","visitas")}</td><td class="n"><b>${brl(x.r)}</b></td></tr>`).join("");
+  // cenário por obra: todas as obras com gasto lançado no filtro
+  const g={};
+  L.filter(x=>x.c.real.total>0).forEach(x=>{const k=x.v.idObra||norm(x.v.obra);const o=g[k]=g[k]||{id:x.v.idObra,obra:x.v.obra,n:0,ult:"",orc:0,realC:0,real:0,tipos:{}};
+    o.n++;if((x.v.ini||"")>o.ult)o.ult=x.v.ini||"";o.real+=x.c.real.total;o.tipos[x.v.tipo]=1;
+    if(x.c.orc&&x.c.orc.total){o.orc+=x.c.orc.total;o.realC+=x.c.real.total;}});
+  const OB=Object.values(g).map(o=>({...o,saldo:o.orc?o.orc-o.realC:null,desv:o.orc?(o.realC-o.orc)/o.orc*100:null}));
+  const ord=$("r-ord").value;
+  OB.sort({real:(a,b)=>b.real-a.real,estouro:(a,b)=>((a.saldo==null?1e15:a.saldo)-(b.saldo==null?1e15:b.saldo)),data:(a,b)=>b.ult.localeCompare(a.ult),obra:(a,b)=>String(a.obra).localeCompare(String(b.obra))}[ord]);
+  const per=[ano||"todos os anos",tp?tp.toLowerCase():"",ob?("obra "+ob):""].filter(Boolean).join(" · ");
+  $("r-tit").textContent=`Cenário das obras no período (${plural(OB.length,"obra","obras")})`;
+  $("r-dica").textContent=`Todas as obras com gasto lançado em ${per}, somando as visitas de cada uma. Clique numa obra para filtrar o painel por ela.`;
+  const sitO=o=>!o.orc?["Não orçado","p-neu"]:o.realC>o.orc?["Acima do orçado","p-ruim"]:["Dentro do orçado","p-ok"];
+  $("r-obras").innerHTML=OB.length?OB.map(o=>{const s=sitO(o);return `<tr class="clic" data-ob="${esc(o.id)}"><td class="quebra">${esc(o.id)} - ${esc(o.obra)}<small>${esc(Object.keys(o.tipos).join(", ").toLowerCase())}</small></td><td class="n">${o.n}</td><td>${fmt(o.ult)}</td><td class="n">${o.orc?brl(o.orc):"-"}</td><td class="n">${brl(o.real)}</td><td class="n ${o.saldo==null?"":o.saldo<0?"neg":"pos"}">${o.saldo==null?"-":brl(o.saldo)}</td><td class="n ${o.desv==null?"":o.desv>0?"neg":"pos"}">${o.desv==null?"-":pct(o.desv)}</td><td><span class="pill ${s[1]}">${s[0]}</span></td></tr>`;}).join(""):`<tr><td colspan="8">Nenhum gasto lançado no filtro.</td></tr>`;
+  const tO=OB.reduce((a,o)=>a+o.orc,0),tR=OB.reduce((a,o)=>a+o.real,0),tRc=OB.reduce((a,o)=>a+o.realC,0),tN=OB.reduce((a,o)=>a+o.n,0);
+  $("r-tot").innerHTML=OB.length?`<tr class="tot"><td>Total (${plural(OB.length,"obra","obras")})</td><td class="n">${tN}</td><td></td><td class="n">${brl(tO)}</td><td class="n">${brl(tR)}</td><td class="n ${tO-tRc<0?"neg":"pos"}" title="Saldo só das visitas com orçado">${tO?brl(tO-tRc):"-"}</td><td class="n">${tO?pct((tRc-tO)/tO*100):"-"}</td><td></td></tr>`:"";
+  $("r-obras").querySelectorAll("tr[data-ob]").forEach(tr=>tr.onclick=()=>{if(!tr.dataset.ob)return;$("r-obra").value=tr.dataset.ob;renderResumo();$("r-kpis").scrollIntoView({behavior:"smooth"});});
+  // maiores estouros (visitas)
   const top=comp.filter(x=>x.c.sit==="estouro").sort((a,b)=>a.c.saldo-b.c.saldo).slice(0,10);
   $("r-top").innerHTML=top.length?top.map(({v,c})=>`<tr class="clic" data-k="${esc(v._k)}"><td>${esc(v.pedido)}</td><td class="quebra">${esc(v.obra)}</td><td>${esc(v.tipo)}</td><td>${fmt(v.ini)}</td><td class="n">${brl(c.orc.total)}</td><td class="n">${brl(c.real.total)}</td><td class="n neg">${brl(c.saldo)}</td><td class="n neg">${pct(c.desvio)}</td></tr>`).join(""):`<tr><td colspan="8">Nenhum estouro no filtro.</td></tr>`;
   ligarLinhas("r-top");
 }
-["r-ano","r-tipo","r-obra"].forEach(id=>$(id).addEventListener("change",renderResumo));
+["r-ano","r-tipo","r-obra","r-ord"].forEach(id=>$(id).addEventListener("change",renderResumo));
 
 /* ---------- VISITAS ---------- */
 function renderVisitas(){
