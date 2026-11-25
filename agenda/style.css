@@ -331,3 +331,14 @@ table.lista tr.lin:hover td{background:var(--surface-2)}
 .climagrande{display:flex;gap:12px;align-items:center}
 .climagrande .ico svg{width:46px;height:46px}
 .climagrande b{font-size:26px}
+
+/* ---------- Painel do supervisor em tela cheia no computador ---------- */
+@media (min-width:1200px){
+  .painel-largo .wide{max-width:none;padding-left:max(28px,env(safe-area-inset-left,0px));padding-right:max(28px,env(safe-area-inset-right,0px))}
+  .painel-largo .painel-abas{max-width:none}
+  .painel-largo .gradebox table.grade{width:100%}
+  .painel-largo .grade th.nome,.painel-largo .grade td.nome{min-width:150px;width:150px}
+  .painel-largo .grade thead th{min-width:0}
+  .painel-largo .grade td.cel{height:58px}
+  .painel-largo .bloco,.painel-largo .bloco.comtempo .t{font-size:11.5px}
+}
