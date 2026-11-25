@@ -5,11 +5,12 @@
 "use strict";
 const {h,hoje,addDias,dow,br,DOWL,norm}=window.AG;
 const UF={AC:"Acre",AL:"Alagoas",AP:"Amapá",AM:"Amazonas",BA:"Bahia",CE:"Ceará",DF:"Distrito Federal",ES:"Espírito Santo",GO:"Goiás",MA:"Maranhão",MT:"Mato Grosso",MS:"Mato Grosso do Sul",MG:"Minas Gerais",PA:"Pará",PB:"Paraíba",PR:"Paraná",PE:"Pernambuco",PI:"Piauí",RJ:"Rio de Janeiro",RN:"Rio Grande do Norte",RS:"Rio Grande do Sul",RO:"Rondônia",RR:"Roraima",SC:"Santa Catarina",SP:"São Paulo",SE:"Sergipe",TO:"Tocantins"};
-const DIAS_PREV=16,VALIDADE=60*60000;
+const DIAS_PREV=16,VALIDADE=30*60000;   // a previsão é renovada a cada 30 minutos
 const ls={get(k,d){try{const v=localStorage.getItem(k);return v==null?d:JSON.parse(v);}catch(e){return d;}},set(k,v){try{localStorage.setItem(k,JSON.stringify(v));}catch(e){}}};
 const geo=ls.get("agd-geo",{});          // cidade -> {lat,lon} ou {nada:true}, guardado no navegador
 const prevs=new Map();                     // chave -> {daily,em} | null
-let emCurso=null;
+let emCurso=null,ultima=0;
+const nomes=new Map();                     // chave -> cidade como foi escrita
 
 function partes(c){
   const t=String(c||"").trim();if(!t)return null;
@@ -34,7 +35,7 @@ function garantir(cidades){
   const falta=[...new Set(cidades.map(chave).filter(Boolean))].filter(k=>{const p=prevs.get(k);return p===undefined||(p&&agora-p.em>(p.falha?5*60000:VALIDADE));});
   if(!falta.length)return Promise.resolve(false);
   if(emCurso)return emCurso.then(()=>garantir(cidades));
-  const porChave={};cidades.forEach(c=>{porChave[chave(c)]=c;});
+  const porChave={};cidades.forEach(c=>{const k=chave(c);if(k){porChave[k]=c;nomes.set(k,c);}});
   emCurso=(async()=>{
     const pontos=[];
     for(const k of falta){try{const g=await geocodificar(porChave[k]);if(g.nada)prevs.set(k,null);else pontos.push({k,g});}catch(e){prevs.set(k,{falha:true,em:Date.now()});}}   // sem internet: tenta de novo em 5 minutos
@@ -46,6 +47,7 @@ function garantir(cidades){
           "&latitude="+lote.map(p=>p.g.lat).join(",")+"&longitude="+lote.map(p=>p.g.lon).join(",");
         const j=await (await fetch(url)).json();const arr=Array.isArray(j)?j:[j];
         lote.forEach((p,n)=>{prevs.set(p.k,arr[n]&&arr[n].daily?{daily:arr[n].daily,em:Date.now()}:{falha:true,em:Date.now()});});
+        if(arr.some(x=>x&&x.daily))ultima=Date.now();
       }catch(e){lote.forEach(p=>prevs.set(p.k,{falha:true,em:Date.now()}));}
     }
     return true;
@@ -104,5 +106,12 @@ function detalhe(obra,cidade,dia,pv,equipe){
     h("p",{class:"full mini",style:"margin:0",text:"Previsão Open-Meteo, atualizada a cada hora."}));
   window.AG.modal(obra+" · "+DOWL[dow(dia)]+" "+br(dia),corpo,[h("span",{class:"spacer"}),h("button",{class:"btn primary",type:"button",onclick:window.AG.fechar},"Fechar")]);
 }
-window.CLIMA={garantir,prev,naoEncontrada,cond,faixa,legenda,detalhe,icone,DIAS_PREV};
+/* busca de novo a previsão de todas as cidades já usadas (chamada pelo painel a cada 30 minutos) */
+function renovar(forcar){
+  if(!nomes.size)return Promise.resolve(false);
+  if(forcar)prevs.forEach(p=>{if(p)p.em=0;});
+  return garantir([...nomes.values()]);
+}
+const vencida=()=>!ultima||Date.now()-ultima>VALIDADE;
+window.CLIMA={renovar,vencida,atualizadaEm:()=>ultima,VALIDADE,garantir,prev,naoEncontrada,cond,faixa,legenda,detalhe,icone,DIAS_PREV};
 })();

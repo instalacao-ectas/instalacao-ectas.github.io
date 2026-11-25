@@ -2,7 +2,7 @@
    Mesma senha do Painel do Diário de Obra. Lança e edita a programação, cuida dos cadastros e das obras em espera. */
 (function(){
 "use strict";
-const VERSAO="25/11/2026 08:30";
+const VERSAO="25/11/2026 08:45";
 const $=id=>document.getElementById(id);
 const A=window.AG;
 const {h,hoje,addDias,segunda,dow,br,brA,dif,ehData,rotulo,cls,norm,kvs,vazio,indexar,grade,ondeEsta,modal,fechar,TIPOS,COM_OBRA,DOWL}=A;
@@ -102,7 +102,13 @@ function tAgenda(){
     aoClicar:(nm,d,r)=>{if(r)formLanc(r.it);else formLanc(null,{func:[nm],ini:d,fim:d});},
     aoMudar:o=>{Object.assign(S,o);if(o.semanas)lss("agd-sup-semanas",o.semanas);render();}});
   if(ligado&&faltam.size)C.garantir([...faltam]).then(novo=>{if(novo&&S.tab==="agenda")render();});
-  if(ligado)el.append(h("p",{class:"mini",style:"margin:10px 0 0",text:"Previsão do tempo: Open-Meteo (modelos de institutos como ECMWF e NOAA), até 16 dias, pela cidade do lançamento ou da obra. Toque na faixa do tempo para ver os detalhes."}));
+  if(ligado){
+    const em=C.atualizadaEm();
+    const bAt=h("button",{class:"linkbtn",type:"button",onclick:()=>{bAt.textContent="atualizando…";C.renovar(true).then(()=>render());}},"Atualizar agora");
+    el.append(h("p",{class:"mini",style:"margin:10px 0 0"},
+      em?"Previsão atualizada às "+new Date(em).toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"})+" e renovada sozinha a cada 30 minutos enquanto o painel estiver aberto. ":"",bAt,
+      " · Fonte: Open-Meteo (modelos de institutos como ECMWF e NOAA), até 16 dias, pela cidade do lançamento ou da obra. Toque na faixa do tempo para ver os detalhes."));
+  }
   return el;
 }
 function tHoje(){return ondeEsta({nomes:ativos(),idx,dia:S.dia,aoMudar:d=>{S.dia=d;render();}});}
@@ -154,6 +160,16 @@ function compartilhar(){
   link_("ver");
   modal("Compartilhar disponibilidade técnica",corpo,[h("span",{class:"spacer"}),h("button",{class:"btn",type:"button",onclick:fechar},"Fechar")]);
 }
+
+/* ---------- previsão do tempo: renovação automática ---------- */
+function renovarClima(forcar){
+  const C=window.CLIMA;
+  if(!C||!D||!S.clima||document.visibilityState!=="visible")return;
+  if(!forcar&&!C.vencida())return;
+  C.renovar(true).then(novo=>{if(novo&&S.tab==="agenda"&&!document.querySelector(".janela"))render();});
+}
+setInterval(()=>renovarClima(false),5*60000);   // confere a cada 5 minutos; busca de novo quando passar de 30 minutos
+document.addEventListener("visibilitychange",()=>renovarClima(false));
 
 /* ---------- lista de lançamentos ---------- */
 function tLanc(){
