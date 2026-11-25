@@ -142,7 +142,11 @@ function ondeEsta(o){
       h("button",{class:"btn small",type:"button",onclick:()=>o.aoMudar(null)},"Hoje")));
   if(!o.nomes.length)return h("div",{},barra,vazio("Nenhum funcionário ativo",""));
   const k={c:0,b:0,t:0,a:0,s:0},obras=new Map();
-  const cartoes=o.nomes.map(nm=>{
+  /* "Por funcionário": quem está na mesma obra fica em cartões lado a lado */
+  const ordem=o.nomes.map(nm=>{const r=resolver(o.idx,nm,dia),it=r&&r.it;return {nm,g:it?grp(it):8,ch:it?rotulo(it):""};});
+  const qt={};ordem.forEach(x=>qt[x.ch]=(qt[x.ch]||0)+1);
+  ordem.sort((x,y)=>x.g-y.g||qt[y.ch]-qt[x.ch]||x.ch.localeCompare(y.ch,"pt-BR")||o.nomes.indexOf(x.nm)-o.nomes.indexOf(y.nm));
+  const cartoes=ordem.map(x=>x.nm).map(nm=>{
     const r=resolver(o.idx,nm,dia),it=r&&r.it,nx=proximo(o.idx,nm,dia,it);
     if(!it)k.s++;else{const g=grp(it);if(g<=3)k.c++;else if(g===4)k.b++;else if(g===5)k.t++;else if(g<=7)k.a++;}
     if(it&&grp(it)<=3){const ch=rotulo(it);if(!obras.has(ch))obras.set(ch,{it,ppl:[]});obras.get(ch).ppl.push(nm);}
