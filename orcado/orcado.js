@@ -153,12 +153,12 @@ function renderResumo(){
   OB.sort({real:(a,b)=>b.real-a.real,estouro:(a,b)=>((a.saldo==null?1e15:a.saldo)-(b.saldo==null?1e15:b.saldo)),data:(a,b)=>b.ult.localeCompare(a.ult),obra:(a,b)=>String(a.obra).localeCompare(String(b.obra))}[ord]);
   const per=[ano||"todos os anos",tp?tp.toLowerCase():"",ob?("obra "+ob):""].filter(Boolean).join(" · ");
   $("r-tit").textContent=`Cenário das obras no período (${plural(OB.length,"obra","obras")})`;
-  $("r-dica").textContent=`Todas as obras com gasto lançado em ${per}, somando as visitas de cada uma. Clique numa obra para filtrar o painel por ela.`;
+  $("r-dica").textContent=`Todas as obras com gasto lançado em ${per}, somando as visitas de cada uma. Clique numa obra para ver o resumo geral dos gastos dela.`;
   const sitO=o=>!o.orc?["Não orçado","p-neu"]:o.realC>o.orc?["Acima do orçado","p-ruim"]:["Dentro do orçado","p-ok"];
-  $("r-obras").innerHTML=OB.length?OB.map(o=>{const s=sitO(o);return `<tr class="clic" data-ob="${esc(o.id)}"><td class="quebra">${esc(o.id)} - ${esc(o.obra)}<small>${esc(Object.keys(o.tipos).join(", ").toLowerCase())}</small></td><td class="n">${o.n}</td><td>${fmt(o.ult)}</td><td class="n">${o.orc?brl(o.orc):"-"}</td><td class="n">${brl(o.real)}</td><td class="n ${o.saldo==null?"":o.saldo<0?"neg":"pos"}">${o.saldo==null?"-":brl(o.saldo)}</td><td class="n ${o.desv==null?"":o.desv>0?"neg":"pos"}">${o.desv==null?"-":pct(o.desv)}</td><td><span class="pill ${s[1]}">${s[0]}</span></td></tr>`;}).join(""):`<tr><td colspan="8">Nenhum gasto lançado no filtro.</td></tr>`;
+  $("r-obras").innerHTML=OB.length?OB.map(o=>{const s=sitO(o);return `<tr class="clic" data-ob="${esc(o.id||("N:"+o.obra))}"><td class="quebra">${esc(o.id)} - ${esc(o.obra)}<small>${esc(Object.keys(o.tipos).join(", ").toLowerCase())}</small></td><td class="n">${o.n}</td><td>${fmt(o.ult)}</td><td class="n">${o.orc?brl(o.orc):"-"}</td><td class="n">${brl(o.real)}</td><td class="n ${o.saldo==null?"":o.saldo<0?"neg":"pos"}">${o.saldo==null?"-":brl(o.saldo)}</td><td class="n ${o.desv==null?"":o.desv>0?"neg":"pos"}">${o.desv==null?"-":pct(o.desv)}</td><td><span class="pill ${s[1]}">${s[0]}</span></td></tr>`;}).join(""):`<tr><td colspan="8">Nenhum gasto lançado no filtro.</td></tr>`;
   const tO=OB.reduce((a,o)=>a+o.orc,0),tR=OB.reduce((a,o)=>a+o.real,0),tRc=OB.reduce((a,o)=>a+o.realC,0),tN=OB.reduce((a,o)=>a+o.n,0);
   $("r-tot").innerHTML=OB.length?`<tr class="tot"><td>Total (${plural(OB.length,"obra","obras")})</td><td class="n">${tN}</td><td></td><td class="n">${brl(tO)}</td><td class="n">${brl(tR)}</td><td class="n ${tO-tRc<0?"neg":"pos"}" title="Saldo só das visitas com orçado">${tO?brl(tO-tRc):"-"}</td><td class="n">${tO?pct((tRc-tO)/tO*100):"-"}</td><td></td></tr>`:"";
-  $("r-obras").querySelectorAll("tr[data-ob]").forEach(tr=>tr.onclick=()=>{if(!tr.dataset.ob)return;$("r-obra").value=tr.dataset.ob;renderResumo();$("r-kpis").scrollIntoView({behavior:"smooth"});});
+  $("r-obras").querySelectorAll("tr[data-ob]").forEach(tr=>tr.onclick=()=>abrirObra(tr.dataset.ob,ano,tp));
   // maiores estouros (visitas)
   const top=comp.filter(x=>x.c.sit==="estouro").sort((a,b)=>a.c.saldo-b.c.saldo).slice(0,10);
   $("r-top").innerHTML=top.length?top.map(({v,c})=>`<tr class="clic" data-k="${esc(v._k)}"><td>${esc(v.pedido)}</td><td class="quebra">${esc(v.obra)}</td><td>${esc(v.tipo)}</td><td>${fmt(v.ini)}</td><td class="n">${brl(c.orc.total)}</td><td class="n">${brl(c.real.total)}</td><td class="n neg">${brl(c.saldo)}</td><td class="n neg">${pct(c.desvio)}</td></tr>`).join(""):`<tr><td colspan="8">Nenhum estouro no filtro.</td></tr>`;
@@ -180,7 +180,7 @@ function renderVisitas(){
 function ligarLinhas(id){$(id).querySelectorAll("tr.clic").forEach(tr=>tr.onclick=()=>abrirVisita(tr.dataset.k));}
 
 /* ---------- ficha da visita (formato da aba ARQUIVO) ---------- */
-function abrirVisita(k){
+function abrirVisita(k,voltar){
   const v=todas().find(x=>x._k===k);if(!v)return;const c=calc(v),d=v.desl||{},o=c.orc,r=c.real;
   const fin=x=>o&&o.total?o[x]-r[x]:-r[x];
   const cel=n=>`<td class="n ${n<0?"neg":n>0?"pos":""}">${brl(n)}</td>`;
@@ -206,9 +206,58 @@ function abrirVisita(k){
   if(v._app)h+=`<div style="display:flex;gap:8px;flex-wrap:wrap">${v.status!=="Aprovado"?`<button type="button" class="btn pri" id="m-ap">Aprovar</button>`:""}<button type="button" class="btn sec" id="m-ed">Editar</button></div>`;
   $("modal-box").innerHTML=h;$("modal").hidden=false;
   $("m-x").onclick=fechar;
+  if(voltar){const b=document.createElement("button");b.type="button";b.className="btn sec";b.textContent="← Voltar à obra";b.onclick=voltar;$("m-x").parentNode.insertBefore(b,$("m-x"));}
   if($("m-ap"))$("m-ap").onclick=async()=>{await gravar({...v,status:"Aprovado",aprovadoEm:new Date().toISOString()});fechar();toast("Lançamento aprovado");};
   if($("m-ed"))$("m-ed").onclick=()=>{fechar();F=Object.assign(novo(),JSON.parse(JSON.stringify(v)));if(!F.orc)F.orc=novo().orc;passo=0;abrirAba("lancar");};
 }
+
+/* ---------- resumo geral da obra (todas as visitas no filtro) ---------- */
+function abrirObra(chave,ano,tp){
+  const daObra=v=>chave.startsWith("N:")?(!v.idObra&&v.obra===chave.slice(2)):v.idObra===chave;
+  const L=todas().filter(v=>daObra(v)&&(!ano||(v.ini||v.cad||"").startsWith(ano))&&(!tp||v.tipo===tp)).map(v=>({v,c:calc(v)})).filter(x=>x.c.real.total>0||(x.c.orc&&x.c.orc.total))
+    .sort((a,b)=>(a.v.ini||"").localeCompare(b.v.ini||""));
+  if(!L.length)return;
+  const nome=L[L.length-1].v.obra, id=L[0].v.idObra;
+  // somas por categoria: orçado e realizado (realizado comparável = só visitas com orçado)
+  const O={},R={},Rc={};CATS.forEach(([k])=>{O[k]=0;R[k]=0;Rc[k]=0;});
+  L.forEach(({c})=>CATS.forEach(([k])=>{R[k]+=c.real[k];if(c.orc&&c.orc.total){O[k]+=c.orc[k];Rc[k]+=c.real[k];}}));
+  const tO=CATS.reduce((a,[k])=>a+O[k],0),tR=CATS.reduce((a,[k])=>a+R[k],0),tRc=CATS.reduce((a,[k])=>a+Rc[k],0);
+  // detalhe do deslocamento e estadia somados
+  const D={diasCarro:0,carro:0,aluguel:0,uber:0,passagem:0,pedagio:0,bagagem:0,combustivel:0},E={hotel:0,alimentacao:0};
+  L.forEach(({v,c})=>{const d=v.desl||{};D.diasCarro+=d.diasCarro||0;D.carro+=c.carroTot;["aluguel","uber","passagem","pedagio","bagagem","combustivel"].forEach(k=>D[k]+=d[k]||0);E.hotel+=(v.est||{}).hotel||0;E.alimentacao+=(v.est||{}).alimentacao||0;});
+  // equipe somada
+  const EQ={};L.forEach(({v})=>(v.equipe||[]).forEach(e=>{const x=EQ[e.nome]=EQ[e.nome]||{dias:0,h50:0,h75:0,ht:0,he:0,vis:0};x.dias+=e.dias||0;x.h50+=e.h50||0;x.h75+=e.h75||0;x.ht+=(e.vDia||0)*(e.dias||0);x.he+=(e.vHora||0)*((e.h50||0)*1.5+(e.h75||0)*1.75);x.vis++;}));
+  const AD=[];L.forEach(({v})=>(v.adic||[]).forEach(a=>AD.push({...a,ini:v.ini})));
+  const temO=tO>0,saldo=tO-tRc,desv=temO?(tRc-tO)/tO*100:null;
+  const cel=n=>`<td class="n ${n<0?"neg":n>0?"pos":""}">${brl(n)}</td>`;
+  const per=[ano||"todos os anos",tp?tp.toLowerCase():""].filter(Boolean).join(" · ");
+  const sub=(rot,itens)=>itens.map((it,i)=>`<tr><td>${i?"":`<b>${rot}</b>`}</td><td>${esc(it[0])}</td><td class="n">${it[1]}</td><td></td><td></td><td></td></tr>`).join("");
+  let h=`<div class="topo"><h3>${esc(id||"")}${id?" - ":""}${esc(nome)}</h3><button type="button" class="btn sec" id="m-x">Fechar</button></div>
+  <div style="display:flex;gap:6px;flex-wrap:wrap"><span class="pill ${!temO?"p-neu":tRc>tO?"p-ruim":"p-ok"}">${!temO?"Não orçado":tRc>tO?"Acima do orçado":"Dentro do orçado"}</span><span class="pill p-neu">Resumo geral da obra · ${esc(per)}</span></div>
+  <div class="kpis"><div class="kpi"><span>Visitas</span><b>${L.length}</b><small>${fmt(L[0].v.ini)} a ${fmt(L[L.length-1].v.fim||L[L.length-1].v.ini)}</small></div>
+    <div class="kpi"><span>Orçado</span><b>${temO?brlK(tO):"-"}</b><small>soma das DIR</small></div>
+    <div class="kpi"><span>Realizado</span><b>${brlK(tR)}</b><small>todas as visitas</small></div>
+    <div class="kpi ${temO?(saldo<0?"ruim":"bom"):""}"><span>Saldo</span><b>${temO?brlK(saldo):"-"}</b><small>${temO?pct(desv)+" sobre o orçado":"sem orçado"}</small></div></div>
+  <div class="tabela"><table><thead><tr><th>Categoria</th><th>Item</th><th class="n">Lançado</th><th class="n">Orçado</th><th class="n">Realizado</th><th class="n">Final</th></tr></thead><tbody>
+  ${CATS.map(([k,n])=>`<tr><td><b>${n}</b></td><td></td><td></td><td class="n">${temO?brl(O[k]):"-"}</td><td class="n">${brl(R[k])}</td>${cel(temO?O[k]-Rc[k]:-R[k])}</tr>`+
+     (k==="desl"?sub("",[["Dias de carro ECTAS",D.diasCarro],["Carro ECTAS (total)",brl(D.carro)],["Aluguel de carro",brl(D.aluguel)],["Uber",brl(D.uber)],["Passagem",brl(D.passagem)],["Pedágio",brl(D.pedagio)],["Bagagem",brl(D.bagagem)],["Combustível",brl(D.combustivel)]].filter(x=>x[1]&&x[1]!=="R$ 0,00")):"")+
+     (k==="est"?sub("",[["Hotel",brl(E.hotel)],["Alimentação",brl(E.alimentacao)]]):"")).join("")}
+  <tr class="tot"><td>Total</td><td></td><td></td><td class="n">${temO?brl(tO):"-"}</td><td class="n">${brl(tR)}</td>${cel(temO?saldo:-tR)}</tr></tbody></table></div>
+  ${temO&&tR!==tRc?`<p class="status">O final soma só as visitas que têm orçado. Visitas não orçadas (garantia/contrato) somam ${brl(tR-tRc)} no realizado.</p>`:""}
+  <h2 style="margin:6px 0 0;font-size:.8rem;text-transform:uppercase;letter-spacing:.08em;color:var(--accent)">Visitas da obra</h2>
+  <div class="tabela"><table><thead><tr><th>Início</th><th>Pedido</th><th>Tipo</th><th class="n">Orçado</th><th class="n">Realizado</th><th class="n">Saldo</th><th>Situação</th></tr></thead><tbody id="m-vis">${L.map(({v,c})=>{const o=c.orc&&c.orc.total;return `<tr class="clic" data-k="${esc(v._k)}"><td>${fmt(v.ini)}</td><td>${esc(v.pedido)}</td><td>${esc(v.tipo)}</td><td class="n">${o?brl(c.orc.total):"-"}</td><td class="n">${brl(c.real.total)}</td><td class="n ${o?(c.saldo<0?"neg":"pos"):""}">${o&&c.sit!=="pend"?brl(c.saldo):"-"}</td><td><span class="pill ${SIT[c.sit][1]}">${SIT[c.sit][0]}</span></td></tr>`;}).join("")}</tbody></table></div>
+  <p class="status">Clique numa visita para ver o fechamento dela.</p>`;
+  const eq=Object.entries(EQ).sort((a,b)=>(b[1].ht+b[1].he)-(a[1].ht+a[1].he));
+  if(eq.length)h+=`<h2 style="margin:6px 0 0;font-size:.8rem;text-transform:uppercase;letter-spacing:.08em;color:var(--accent)">Equipe (somada)</h2>
+  <div class="tabela"><table><thead><tr><th>Colaborador</th><th class="n">Visitas</th><th class="n">Dias</th><th class="n">Até 2h</th><th class="n">Além 2h</th><th class="n">H. técnicas</th><th class="n">H. extras</th><th class="n">Total</th></tr></thead><tbody>${eq.map(([n,x])=>`<tr><td>${esc(n)}</td><td class="n">${x.vis}</td><td class="n">${nf(x.dias)}</td><td class="n">${nf(x.h50)}</td><td class="n">${nf(x.h75)}</td><td class="n">${brl(x.ht)}</td><td class="n">${brl(x.he)}</td><td class="n"><b>${brl(x.ht+x.he)}</b></td></tr>`).join("")}</tbody></table></div>`;
+  if(AD.length)h+=`<details><summary style="cursor:pointer;font-weight:700">Gastos adicionais (${AD.length} itens · ${brl(AD.reduce((a,x)=>a+(x.valor||0),0))})</summary><div class="tabela"><table><tbody>${AD.map(a=>`<tr><td>${fmt(a.ini)}</td><td class="quebra">${esc(a.desc)}</td><td class="n">${brl(a.valor)}</td></tr>`).join("")}</tbody></table></div></details>`;
+  if(id)h+=`<div style="display:flex;gap:8px;flex-wrap:wrap"><button type="button" class="btn sec" id="m-filtra">Filtrar o painel por esta obra</button></div>`;
+  $("modal-box").innerHTML=h;$("modal").hidden=false;$("modal").scrollTop=0;
+  $("m-x").onclick=fechar;
+  $("m-vis").querySelectorAll("tr.clic").forEach(tr=>tr.onclick=()=>abrirVisita(tr.dataset.k,()=>abrirObra(chave,ano,tp)));
+  if($("m-filtra"))$("m-filtra").onclick=()=>{fechar();$("r-obra").value=id;renderResumo();$("r-kpis").scrollIntoView({behavior:"smooth"});};
+}
+const nf=n=>Number(n||0).toLocaleString("pt-BR",{maximumFractionDigits:2});
 function fechar(){$("modal").hidden=true;$("modal-box").innerHTML="";}
 $("modal").addEventListener("click",e=>{if(e.target.id==="modal")fechar();});
 document.addEventListener("keydown",e=>{if(e.key==="Escape"&&!$("modal").hidden)fechar();});
