@@ -289,7 +289,7 @@ function abrirObra(chave,ano,tp,mes){
 }
 const nf=n=>Number(n||0).toLocaleString("pt-BR",{maximumFractionDigits:2});
 function tabelaNotas(notas,editavel){
-  return `<div class="tabela"><table><thead><tr><th>Nota</th><th>Data</th><th>O que foi comprado</th><th>Estabelecimento</th><th>Técnico</th><th class="n">Valor</th>${editavel?"<th></th>":""}</tr></thead><tbody>${notas.map(n=>`<tr${n.recusada?' style="opacity:.5"':""}><td>${n.mini||n.foto?`<img src="${esc(n.mini||n.foto)}" alt="Nota" data-foto="${esc(n.id)}" style="width:44px;height:44px;object-fit:cover;border-radius:6px;cursor:zoom-in">`:"-"}</td><td>${fmt(n.data)}</td><td class="quebra">${esc(n.desc)}${n.recusada?' <span class="pill p-ruim">recusada</span>':""}</td><td class="quebra">${esc(n.loja||"")}${n.cnpj?`<small>${esc(n.cnpj)}</small>`:""}</td><td>${esc((n.tecnico||"").split(" ")[0])}</td><td class="n">${brl(n.valor)}</td>${editavel?`<td><button type="button" class="btn sec" data-rec="${esc(n.id)}" style="padding:4px 10px;font-size:.78rem">${n.recusada?"Aceitar":"Recusar"}</button></td>`:""}</tr>`).join("")}
+  return `<div class="tabela"><table><thead><tr><th>Nota</th><th>Data</th><th>O que foi comprado</th><th>Estabelecimento</th><th>Técnico</th><th class="n">Valor</th>${editavel?"<th></th>":""}</tr></thead><tbody>${notas.map(n=>`<tr${n.recusada?' style="opacity:.5"':""}><td>${n.mini||n.foto?`<img src="${esc(n.mini||n.foto)}" alt="Nota" data-foto="${esc(n.id)}" style="width:44px;height:44px;object-fit:cover;border-radius:6px;cursor:zoom-in">`:"-"}</td><td>${fmt(n.data)}</td><td class="quebra">${esc(n.desc)}${n.recusada?' <span class="pill p-ruim">recusada</span>':""}</td><td class="quebra">${esc(n.loja||"")}${n.cnpj?`<small>${esc(n.cnpj)}</small>`:""}</td><td>${esc((n.tecnico||"").split(" ")[0])}</td><td class="n">${brl(n.valor)}${n.digitado?'<small class="atn" title="A leitura da foto falhou e o técnico digitou o valor: confira com a foto.">valor digitado</small>':""}</td>${editavel?`<td><button type="button" class="btn sec" data-rec="${esc(n.id)}" style="padding:4px 10px;font-size:.78rem">${n.recusada?"Aceitar":"Recusar"}</button></td>`:""}</tr>`).join("")}
    <tr class="tot"><td colspan="5">Total aceito (${notas.filter(n=>!n.recusada).length} nota(s))</td><td class="n">${brl(notas.filter(n=>!n.recusada).reduce((a,n)=>a+(n.valor||0),0))}</td>${editavel?"<td></td>":""}</tr></tbody></table></div>`;
 }
 const FOTOS={};
@@ -353,7 +353,8 @@ $("b-exclui").onclick=async e=>{
 };
 function irPara(p){
   passo=p;
-  $("passos").innerHTML=PASSOS.map((n,i)=>`<button type="button" data-p="${i}" ${i===passo?'aria-current="step"':""} class="${i<passo?"feito":""} ${i===1&&!orcado()?"pula":""}"><b>${i<passo?"✓":i+1}</b>${esc(n)}</button>`).join("");
+  const GR={1:'<span class="grupo g-orc">Orçado (previsto)</span>',2:'<span class="grupo g-real">Realizado (gasto)</span>'};
+  $("passos").innerHTML=PASSOS.map((n,i)=>`${GR[i]||""}<button type="button" data-p="${i}" ${i===passo?'aria-current="step"':""} class="${i<passo?"feito":""} ${i===1&&!orcado()?"pula":""}"><b>${i<passo?"✓":i+1}</b>${esc(n)}</button>`).join("");
   $("passos").querySelectorAll("button").forEach(b=>b.onclick=()=>irPara(+b.dataset.p));
   document.querySelectorAll(".etapa").forEach(e=>e.classList.toggle("on",+e.dataset.e===passo));
   $("b-volta").style.visibility=passo?"visible":"hidden";
@@ -361,6 +362,7 @@ function irPara(p){
   $("i-regra").innerHTML=orcado()?`<div class="alerta-box ok">${esc(F.tipo)} é orçado na DIR: preencha o orçado no passo 2 para comparar.</div>`:`<div class="alerta-box atn">${esc(F.tipo)} não é orçado. O gasto entra como realizado, pago pela ${F.tipo==="MANUTENÇÃO CONTRATADA"?"cliente":"ECTAS"}; o passo 2 fica dispensado.</div>`;
   $("o-msg").innerHTML=orcado()?"":`<div class="alerta-box atn">Tipo não orçado: estes campos não se aplicam.</div>`;
   document.querySelectorAll("#o-campos input").forEach(i=>i.disabled=!orcado());
+  $("o-campos").hidden=!orcado();
   integDesl();integEq();
   if(ult)renderRev();
   resumo();
@@ -455,8 +457,20 @@ function renderAd(){
 $("ad-add").onclick=()=>{F.adic.push({desc:"",valor:0});renderAd();const l=$("ad-lista").querySelectorAll('[data-k="desc"]');l[l.length-1].focus();};
 
 function visitaDoForm(){const v=JSON.parse(JSON.stringify(F));v.equipe=v.equipe.filter(x=>x.nome);v.adic=v.adic.filter(a=>a.desc||a.valor);if(!orcado())v.orc=null;else v.orc.est=(v.orc.hotel||0)+(v.orc.alim||0);return v;}
+// orçado x realizado item a item, no passo 2 e no topo dos passos 3 a 6
+const ITENS={desl:"Deslocamento",hotel:"Hotel",alim:"Alimentação",ht:"Horas técnicas",he:"Horas extras",adic:"Gastos adicionais",frete:"Frete",munk:"Munk"};
+function porItem(v,c){const e=v.est||{};return {desl:c.real.desl,hotel:e.hotel||0,alim:e.alimentacao||0,ht:c.real.ht,he:c.real.he,adic:c.real.adic,frete:c.real.frete,munk:c.real.munk};}
+function compara(v,c){
+  const r=porItem(v,c),o=F.orc||{},tem=orcado();
+  document.querySelectorAll("[data-r]").forEach(td=>{const k=td.dataset.r;td.textContent=brl(r[k]);td.classList.toggle("zero",!r[k]);td.classList.toggle("neg",tem&&(o[k]||0)>0&&r[k]>(o[k]||0));});
+  const ot=Object.keys(ITENS).reduce((a,k)=>a+(o[k]||0),0);$("o-tot").textContent=brl(ot);$("o-rtot").textContent=brl(c.real.total);
+  document.querySelectorAll("[data-cmp]").forEach(box=>{
+    box.innerHTML=box.dataset.cmp.split(",").map(k=>{const ok=o[k]||0,rk=r[k],s=ok-rk;
+      return `<span>${ITENS[k]}: orçado <b>${tem&&ok?brl(ok):"-"}</b> · realizado <b>${brl(rk)}</b>${tem&&ok?` · <b class="${s<0?"neg":"pos"}">${s<0?"passou "+brl(-s):"sobra "+brl(s)}</b>`:""}</span>`;}).join("");});
+}
+document.addEventListener("click",e=>{const b=e.target.closest&&e.target.closest("[data-ir]");if(b)irPara(+b.dataset.ir);});
 function resumo(){
-  const c=calc(visitaDoForm()),o=c.orc;
+  const vf=visitaDoForm(),c=calc(vf),o=c.orc;compara(vf,c);
   $("rs").innerHTML=`<tr><td></td><td class="n status">Orçado</td><td class="n status">Realizado</td></tr>`+CATS.map(([k,n])=>`<tr><td>${esc(n)}</td><td class="n">${o?brlK(o[k]):"-"}</td><td class="n ${o&&o.total&&c.real[k]>o[k]?"neg":""}">${brlK(c.real[k])}</td></tr>`).join("")+
    `<tr class="tot"><td>Total</td><td class="n">${o?brl(o.total):"-"}</td><td class="n">${brl(c.real.total)}</td></tr>`+
    `<tr><td colspan="3" style="padding-top:10px">${o&&o.total?`<span class="status">Saldo</span><div class="saldo ${c.saldo<0?"neg":"pos"}">${brl(c.saldo)}</div><span class="${c.saldo<0?"neg":"pos"}">${pct(c.desvio)} sobre o orçado</span>`:`<span class="status">${orcado()?"Informe o orçado para ver o saldo.":"Tipo não orçado."}</span>`}</td></tr>`;
