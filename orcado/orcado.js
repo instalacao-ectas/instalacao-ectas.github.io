@@ -11,7 +11,8 @@ const TIPOS=["INSTALAÇÃO","COMISSIONAMENTO","START-UP","MANUTENÇÃO EM GARANT
 const ORCADOS=new Set(["INSTALAÇÃO","COMISSIONAMENTO","START-UP"]);
 const CONCEITO=[["Instalação","Sim","ECTAS (vendido ao cliente)"],["Comissionamento","Sim","ECTAS (vendido ao cliente)"],["Start-up","Sim","ECTAS (vendido ao cliente)"],["Manutenção em garantia","Não","ECTAS"],["Manutenção contratada","Não","Cliente"]];
 const CATS=[["desl","Deslocamento"],["est","Estadia"],["ht","Horas técnicas"],["he","Horas extras"],["adic","Gastos adicionais"],["frete","Frete"],["munk","Munk"]];
-const pillStatus=v=>v.status==="Em campo"?`<span class="pill p-atn">Em campo · ${notasAtivas(v).length} nota(s)${v.resp?" · "+esc(v.resp.nome.split(" ")[0]):""}</span>`:`<span class="pill ${v.status==="Aprovado"?"p-ok":"p-app"}">${v.status==="Aprovado"?"Aprovado":"Aguardando aprovação"}</span>`;
+const ANDAMENTO=v=>v.status==="Em campo"||v.status==="Rascunho";
+const pillStatus=v=>v.status==="Rascunho"?`<span class="pill p-neu">Em preenchimento</span>`:v.status==="Em campo"?`<span class="pill ${v.campo&&v.campo.concluido?"p-ok":"p-atn"}">${v.campo&&v.campo.concluido?"Notas concluídas":"Em campo"} · ${notasAtivas(v).length} nota(s)${v.resp?" · "+esc(v.resp.nome.split(" ")[0]):""}</span>`:`<span class="pill ${v.status==="Aprovado"?"p-ok":"p-app"}">${v.status==="Aprovado"?"Aprovado":"Aguardando aprovação"}</span>`;
 const SIT={estouro:["Acima do orçado","p-ruim"],dentro:["Dentro do orçado","p-ok"],nao:["Não orçado","p-neu"],pend:["Orçado sem gasto","p-atn"],vazio:["Sem valores","p-neu"]};
 const MESES_L=["Janeiro","Fevereiro","Março","Abril","Maio","Junho","Julho","Agosto","Setembro","Outubro","Novembro","Dezembro"];
 const noPeriodo=(v,ano,mes)=>{const d=v.ini||v.cad||"";return (!ano||d.startsWith(ano))&&(!mes||d.slice(5,7)===mes);};
@@ -169,11 +170,11 @@ function renderResumo(){
   const obs=[...new Map(todas().map(v=>[v.idObra,v.obra])).entries()].sort((a,b)=>String(a[1]).localeCompare(String(b[1])));
   opcoes($("r-obra"),obs.map(([i,n])=>[i,`${i} - ${n}`]),"Todas as obras");
   const ano=$("r-ano").value,mes=$("r-mes-f").value,tp=$("r-tipo").value,ob=$("r-obra").value;
-  const L=todas().filter(v=>v.status!=="Em campo"&&noPeriodo(v,ano,mes)&&(!tp||v.tipo===tp)&&(!ob||v.idObra===ob)).map(v=>({v,c:calc(v)}));
+  const L=todas().filter(v=>!ANDAMENTO(v)&&noPeriodo(v,ano,mes)&&(!tp||v.tipo===tp)&&(!ob||v.idObra===ob)).map(v=>({v,c:calc(v)}));
   const comp=L.filter(x=>x.c.sit==="estouro"||x.c.sit==="dentro");
   const O=comp.reduce((a,x)=>a+x.c.orc.total,0),R=comp.reduce((a,x)=>a+x.c.real.total,0);
   const nao=L.filter(x=>x.c.sit==="nao"),est=comp.filter(x=>x.c.sit==="estouro").length;
-  const pend=APP.filter(v=>v.status==="Enviado").length,emCampo=APP.filter(v=>v.status==="Em campo");
+  const pend=APP.filter(v=>v.status==="Enviado").length,emCampo=APP.filter(v=>v.status==="Em campo"),andam=APP.filter(ANDAMENTO);
   $("r-kpis").innerHTML=[
     ["Visitas",L.length.toLocaleString("pt-BR"),`${comp.length} com orçado e gasto`,""],
     ["Realizado total",brlK(L.reduce((a,x)=>a+x.c.real.total,0)),"todas as visitas",""],
@@ -181,7 +182,7 @@ function renderResumo(){
     ["Realizado (comparável)",brlK(R),O?`desvio ${pct((R-O)/O*100)}`:"",R>O?"ruim":"bom"],
     ["Acima do orçado",comp.length?Math.round(est/comp.length*100)+"%":"-",`${est} de ${comp.length} visitas`,comp.length&&est/comp.length>.5?"ruim":""],
     ["Não orçado",brlK(nao.reduce((a,x)=>a+x.c.real.total,0)),`${plural(nao.length,"visita","visitas")} (garantia/contrato)`,""],
-    ["Em campo",String(emCampo.length),`${emCampo.reduce((a,v)=>a+notasAtivas(v).length,0)} nota(s) enviadas pelos técnicos`,""],
+    ["Em andamento",String(andam.length),`${emCampo.length} em campo · ${emCampo.reduce((a,v)=>a+notasAtivas(v).length,0)} nota(s) dos técnicos`,""],
     ["Aguardando aprovação",String(pend),"lançamentos do app",pend?"ruim":""]
   ].map(([l,v,d,c])=>`<div class="kpi ${c}"><span>${esc(l)}</span><b>${esc(v)}</b><small>${esc(d)}</small></div>`).join("");
   const mx=Math.max(1,...CATS.map(([k])=>Math.max(comp.reduce((a,x)=>a+x.c.orc[k],0),comp.reduce((a,x)=>a+x.c.real[k],0))));
@@ -231,7 +232,7 @@ function renderVisitas(){
   const q=norm($("v-q").value),tp=$("v-tipo").value,si=$("v-sit").value,st=$("v-st").value;
   const L=todas().map(v=>({v,c:calc(v)})).filter(({v,c})=>(!q||norm(v.pedido+" "+v.idObra+" "+v.obra).includes(q))&&(!tp||v.tipo===tp)&&(!si||c.sit===si)&&(!st||(st==="hist"?!v._app:v.status===st)))
     .sort((a,b)=>(b.v.ini||b.v.cad||"").localeCompare(a.v.ini||a.v.cad||""));
-  $("v-body").innerHTML=L.length?L.slice(0,300).map(({v,c})=>`<tr class="clic" data-k="${esc(v._k)}"><td>${esc(v.pedido)}</td><td>${esc(v.idObra)}</td><td class="quebra">${esc(v.obra)} ${v._app?pillStatus(v):""}</td><td>${esc(v.tipo)}</td><td>${fmt(v.ini)}</td><td>${fmt(v.fim)}</td><td class="n">${c.orc&&c.orc.total?brl(c.orc.total):"-"}</td><td class="n">${brl(c.real.total)}</td><td class="n ${c.saldo==null||c.sit==="pend"?"":c.saldo<0?"neg":"pos"}">${c.saldo==null||c.sit==="pend"?"-":brl(c.saldo)}</td><td>${v.status==="Em campo"?'<span class="pill p-atn">Em campo</span>':`<span class="pill ${SIT[c.sit][1]}">${SIT[c.sit][0]}</span>`}</td></tr>`).join(""):`<tr><td colspan="10">Nenhuma visita encontrada.</td></tr>`;
+  $("v-body").innerHTML=L.length?L.slice(0,300).map(({v,c})=>`<tr class="clic" data-k="${esc(v._k)}"><td>${esc(v.pedido)}</td><td>${esc(v.idObra)}</td><td class="quebra">${esc(v.obra)} ${v._app?pillStatus(v):""}</td><td>${esc(v.tipo)}</td><td>${fmt(v.ini)}</td><td>${fmt(v.fim)}</td><td class="n">${c.orc&&c.orc.total?brl(c.orc.total):"-"}</td><td class="n">${brl(c.real.total)}</td><td class="n ${c.saldo==null||c.sit==="pend"?"":c.saldo<0?"neg":"pos"}">${c.saldo==null||c.sit==="pend"?"-":brl(c.saldo)}</td><td>${v.status==="Rascunho"?'<span class="pill p-neu">Em preenchimento</span>':v.status==="Em campo"?'<span class="pill p-atn">Em campo</span>':`<span class="pill ${SIT[c.sit][1]}">${SIT[c.sit][0]}</span>`}</td></tr>`).join(""):`<tr><td colspan="10">Nenhuma visita encontrada.</td></tr>`;
   $("v-cont").textContent=plural(L.length,"visita","visitas")+(L.length>300?" (mostrando as 300 mais recentes)":"");
   ligarLinhas("v-body");
 }
@@ -246,7 +247,7 @@ function abrirVisita(k,voltar){
   const grupo=(rot,itens,k2)=>itens.map((it,i)=>`<tr><td>${i?"":`<b>${rot}</b>`}</td><td>${esc(it[0])}</td><td class="n">${it[1]}</td>${i?"<td></td><td></td><td></td>":`<td class="n">${o&&o.total?brl(o[k2]):"-"}</td><td class="n">${brl(r[k2])}</td>${cel(fin(k2))}`}</tr>`).join("");
   const ag=agendaDaObra(v.idObra,v.ini,v.fim);
   let h=`<div class="topo"><h3>${esc(v.idObra)} - ${esc(v.obra)}</h3><button type="button" class="btn sec" id="m-x">Fechar</button></div>
-  <div style="display:flex;gap:6px;flex-wrap:wrap">${v.status==="Em campo"?`<span class="pill p-atn">Em campo: ${esc(v.resp?v.resp.nome:"técnico")} lançando as notas · custos ainda incompletos</span>`:`<span class="pill ${SIT[c.sit][1]}">${SIT[c.sit][0]}</span>`}${v.status==="Em campo"?"":v._app?`<span class="pill p-app">Lançado no painel · ${esc(v.status)}</span>`:`<span class="pill p-neu">Histórico da planilha</span>`}</div>
+  <div style="display:flex;gap:6px;flex-wrap:wrap">${v.status==="Rascunho"?`<span class="pill p-neu">Em preenchimento pelo supervisor · custos ainda incompletos</span>`:v.status==="Em campo"?`<span class="pill p-atn">Em campo: ${esc(v.resp?v.resp.nome:"técnico")} lançando as notas · custos ainda incompletos</span>`:`<span class="pill ${SIT[c.sit][1]}">${SIT[c.sit][0]}</span>`}${ANDAMENTO(v)?"":v._app?`<span class="pill p-app">Lançado no painel · ${esc(v.status)}</span>`:`<span class="pill p-neu">Histórico da planilha</span>`}</div>
   <div class="det"><div><span>Pedido</span>${esc(v.pedido)}</div><div><span>Tipo</span>${esc(v.tipo)}</div><div><span>Período</span>${fmt(v.ini)} a ${fmt(v.fim)}</div>${v.supervisor?`<div><span>Supervisor</span>${esc(v.supervisor)}</div>`:""}</div>
   <div class="tabela"><table><thead><tr><th>Descrição</th><th>Item</th><th class="n">Lançado</th><th class="n">Orçado</th><th class="n">Realizado</th><th class="n">Final</th></tr></thead><tbody>
   ${grupo("Deslocamento",[["Dias de carro ECTAS",d.diasCarro||0],["Carro ECTAS (total)",brl(c.carroTot)],["Aluguel de carro",brl(d.aluguel)],["Uber",brl(d.uber)],["Passagem",brl(d.passagem)],["Pedágio",brl(d.pedagio)],["Bagagem",brl(d.bagagem)],["Combustível",brl(d.combustivel)]],"desl")}
@@ -263,18 +264,18 @@ function abrirVisita(k,voltar){
   if((v.notas||[]).length)h+=`<h2 style="margin:6px 0 0;font-size:.8rem;text-transform:uppercase;letter-spacing:.08em;color:var(--accent)">Notas fiscais enviadas em campo</h2>`+tabelaNotas(v.notas,false);
   if((v.adic||[]).length)h+=`<details><summary style="cursor:pointer;font-weight:700">Gastos adicionais (${v.adic.length})</summary><div class="tabela"><table><tbody>${v.adic.map(a=>`<tr><td class="quebra">${esc(a.desc)}</td><td class="n">${brl(a.valor)}</td></tr>`).join("")}</tbody></table></div></details>`;
   if(v.obs)h+=`<p><b>Observações:</b> ${esc(v.obs)}</p>`;
-  if(v._app)h+=`<div style="display:flex;gap:8px;flex-wrap:wrap">${v.status==="Enviado"?`<button type="button" class="btn pri" id="m-ap">Aprovar</button>`:""}<button type="button" class="btn ${v.status==="Em campo"?"pri":"sec"}" id="m-ed">${v.status==="Em campo"?"Completar os custos da visita":"Editar"}</button></div>`;
+  if(v._app)h+=`<div style="display:flex;gap:8px;flex-wrap:wrap">${v.status==="Enviado"?`<button type="button" class="btn pri" id="m-ap">Aprovar</button>`:""}<button type="button" class="btn ${ANDAMENTO(v)?"pri":"sec"}" id="m-ed">${ANDAMENTO(v)?"Continuar o lançamento":"Editar"}</button></div>`;
   $("modal-box").innerHTML=h;$("modal").hidden=false;
   $("m-x").onclick=fechar;
   if(voltar){const b=document.createElement("button");b.type="button";b.className="btn sec";b.textContent="← Voltar à obra";b.onclick=voltar;$("m-x").parentNode.insertBefore(b,$("m-x"));}
   if($("m-ap"))$("m-ap").onclick=async()=>{await gravar({...v,status:"Aprovado",aprovadoEm:new Date().toISOString()});fechar();toast("Lançamento aprovado");};
-  if($("m-ed"))$("m-ed").onclick=()=>{fechar();F=Object.assign(novo(),JSON.parse(JSON.stringify(v)));if(!F.orc)F.orc=novo().orc;passo=0;abrirAba("lancar");};
+  if($("m-ed"))$("m-ed").onclick=async()=>{fechar();await abrirLanc(v.id);};
 }
 
 /* ---------- resumo geral da obra (todas as visitas no filtro) ---------- */
 function abrirObra(chave,ano,tp,mes){
   const daObra=v=>chave.startsWith("N:")?(!v.idObra&&v.obra===chave.slice(2)):v.idObra===chave;
-  const L=todas().filter(v=>v.status!=="Em campo"&&daObra(v)&&noPeriodo(v,ano,mes)&&(!tp||v.tipo===tp)).map(v=>({v,c:calc(v)})).filter(x=>x.c.real.total>0||(x.c.orc&&x.c.orc.total))
+  const L=todas().filter(v=>!ANDAMENTO(v)&&daObra(v)&&noPeriodo(v,ano,mes)&&(!tp||v.tipo===tp)).map(v=>({v,c:calc(v)})).filter(x=>x.c.real.total>0||(x.c.orc&&x.c.orc.total))
     .sort((a,b)=>(a.v.ini||"").localeCompare(b.v.ini||""));
   if(!L.length)return;
   const nome=L[L.length-1].v.obra, id=L[0].v.idObra;
@@ -418,7 +419,52 @@ $("g-carro").addEventListener("change",async e=>{carroDia=num(e.target.value);if
 const PASSOS=["Identificação","Orçado (DIR)","Deslocamento","Estadia e serviços","Equipe e horas","Gastos adicionais","Revisão e envio"];
 let passo=0,F=null;
 function novo(){let sup="";try{sup=localStorage.getItem("orc-sup")||"";}catch(e){}return {id:"",pedido:"",idObra:"",obra:"",tipo:"INSTALAÇÃO",ini:"",fim:"",supervisor:sup,desl:{diasCarro:0,carro:carroDia,aluguel:0,uber:0,passagem:0,pedagio:0,bagagem:0,combustivel:0},est:{hotel:0,alimentacao:0},serv:{frete:0,munk:0},orc:{desl:0,hotel:0,alim:0,ht:0,he:0,adic:0,frete:0,munk:0},equipe:[],adic:[],notas:[],resp:null,obs:""};}
-function rascunho(){try{localStorage.setItem("orc-rascunho",JSON.stringify(F));}catch(e){}}
+function rascunho(){try{localStorage.setItem("orc-rascunho",JSON.stringify(F));}catch(e){}sujo=true;agendarAuto();marcaSalvo();}
+/* ---------- lançamentos em andamento: salvar e continuar depois, várias obras ao mesmo tempo ---------- */
+let sujo=false,tAuto=null,salvando=false;
+const minimoOk=v=>!!(v.idObra&&v.pedido&&v.ini&&v.fim);
+function marcaSalvo(){const el=$("l-salvo");if(!el)return;
+  el.className="salvo "+(sujo?"pend":"ok");
+  el.textContent=salvando?"Salvando…":sujo?(minimoOk(F)?"Alterações não salvas · salvando automaticamente":"Preencha obra, pedido e datas para salvar"):F.salvoEm?`✓ Salvo às ${F.salvoEm}`:"";}
+function agendarAuto(){clearTimeout(tAuto);if(!minimoOk(F))return;tAuto=setTimeout(()=>salvarParcial(true),PREVIA?3000:15000);}
+async function salvarParcial(auto){
+  clearTimeout(tAuto);
+  if(!minimoOk(F)){if(!auto)toast("Para salvar, informe a obra, o pedido e as datas");return false;}
+  if(salvando)return false;
+  const v=visitaDoForm();v.status=F.status&&F.status!=="Rascunho"?F.status:"Rascunho";v.id=v.id||("L"+Date.now().toString(36));v.cad=v.cad||new Date().toISOString().slice(0,10);
+  salvando=true;marcaSalvo();const ok=await gravar(v);salvando=false;
+  if(ok){F.id=v.id;F.status=v.status;F.cad=v.cad;F.salvoEm=new Date().toTimeString().slice(0,5);delete F.reabrirCampo;const x=APP.find(a=>a.id===F.id);if(x){x.salvoEm=F.salvoEm;F.notas=x.notas||F.notas;F.campo=x.campo||null;}
+    sujo=false;try{localStorage.setItem("orc-rascunho",JSON.stringify(F));}catch(e){}
+    if(!auto)toast(`Lançamento salvo. Continue quando quiser em “Lançamentos em andamento”.`);renderAndamento();botaoExcluir();}
+  marcaSalvo();return ok;
+}
+async function abrirLanc(id){
+  if(sujo&&F&&minimoOk(F))await salvarParcial(true);
+  const v=id?APP.find(x=>x.id===id):null;
+  if(id&&!v){toast("Lançamento não encontrado");return;}
+  const sup=F&&F.supervisor;
+  F=v?Object.assign(novo(),JSON.parse(JSON.stringify(v))):Object.assign(novo(),{supervisor:sup||novo().supervisor});
+  delete F._k;delete F._app;if(!F.orc)F.orc=novo().orc;
+  sujo=false;passo=0;try{localStorage.setItem("orc-rascunho",JSON.stringify(F));}catch(e){}
+  if(S.aba!=="lancar")abrirAba("lancar");else renderForm();
+  window.scrollTo(0,0);
+}
+const etapasFeitas=v=>{const c=calc(v);return [["Orçado",!ORCADOS.has(v.tipo)||!!(c.orc&&c.orc.total)],["Deslocamento",c.real.desl>0],["Estadia",(c.real.est||0)>0],["Equipe",(v.equipe||[]).length>0],["Horas extras",(v.equipe||[]).some(x=>x.h50||x.h75)],["Adicionais",(v.adic||[]).length+(notasAtivas(v).length)>0]];};
+function renderAndamento(){
+  const L=APP.filter(ANDAMENTO).sort((a,b)=>String(a.ini).localeCompare(String(b.ini)));
+  const box=$("l-andamento");
+  box.innerHTML=`<div class="la-cab"><h2 style="margin:0">Lançamentos em andamento <span class="pill p-neu">${L.length}</span></h2><button type="button" class="btn sec" id="la-novo">+ Nova visita</button></div>
+   ${L.length?`<div class="la-lista">${L.map(v=>{const nt=notasAtivas(v),on=F&&F.id===v.id;
+     return `<button type="button" class="la-item ${on?"on":""}" data-la="${esc(v.id)}">
+       <b>${esc(v.idObra)} - ${esc(v.obra)}</b>
+       <span>Pedido ${esc(v.pedido)} · ${fmt(v.ini)} a ${fmt(v.fim)}</span>
+       <span>${v.status==="Em campo"?`${v.campo&&v.campo.concluido?"✅":"📱"} ${esc(v.resp?v.resp.nome.split(" ")[0]:"técnico")} ${v.campo&&v.campo.concluido?"concluiu as notas":"em campo"} · ${nt.length} nota(s) ${brl(nt.reduce((a,n)=>a+n.valor,0))}`:"Só o supervisor lança"}</span>
+       <span class="la-etapas">${etapasFeitas(v).map(([n,ok])=>`<i class="${ok?"ok":""}">${ok?"✓":"○"} ${n}</i>`).join("")}</span>
+       <span class="la-acao">${on?"Aberto abaixo":"Continuar →"}</span></button>`;}).join("")}</div>`
+   :`<p class="status" style="margin:0">Nenhum lançamento em andamento. Comece uma visita no início da obra e use “Salvar e continuar depois”: as notas dos técnicos vão chegando e você completa as horas extras no final.</p>`}`;
+  box.querySelectorAll("[data-la]").forEach(b=>b.onclick=()=>abrirLanc(b.dataset.la));
+  $("la-novo").onclick=()=>abrirLanc(null);
+}
 const orcado=()=>ORCADOS.has(F.tipo);
 
 function renderForm(){
@@ -430,7 +476,7 @@ function renderForm(){
   document.querySelectorAll("[data-es]").forEach(i=>i.value=F.est[i.dataset.es]||"");
   document.querySelectorAll("[data-sv]").forEach(i=>i.value=F.serv[i.dataset.sv]||"");
   $("i-resp").innerHTML=`<option value="">Ninguém (supervisor lança tudo)</option>`+TECNICOS.map(t=>`<option value="${esc(t.login)}" ${F.resp&&F.resp.login===t.login?"selected":""}>${esc(t.nome)}</option>`).join("");
-  renderCampo();renderEq();renderAd();irPara(passo);
+  renderCampo();renderEq();renderAd();irPara(passo);renderAndamento();marcaSalvo();
 }
 /* excluir um lançamento já gravado (o histórico da planilha não é excluído) */
 function salvoNoPainel(){return !!(F&&F.id&&APP.some(v=>v.id===F.id));}
@@ -445,7 +491,7 @@ $("b-exclui").onclick=async e=>{
     if(PREVIA)lsSet(LS_PREVIA,lsGet(LS_PREVIA,[]).filter(x=>x.id!==id));
     else await enviar(CC,{painel:true,acao:"lancExcluir",id});
     APP=APP.filter(v=>v.id!==id);
-    const sup=F.supervisor;F=novo();F.supervisor=sup;passo=0;rascunho();renderForm();
+    const sup=F.supervisor;F=novo();F.supervisor=sup;passo=0;sujo=false;clearTimeout(tAuto);try{localStorage.setItem("orc-rascunho",JSON.stringify(F));}catch(x){}renderForm();
     toast(`Lançamento ${nome} excluído`);
   }catch(err){toast(err.message||"Não foi possível excluir");}
   finally{b.disabled=false;botaoExcluir();}
@@ -467,8 +513,9 @@ function irPara(p){
   resumo();
 }
 $("b-volta").onclick=()=>irPara(Math.max(0,passo-1-(passo===2&&!orcado()?1:0)));
-$("b-segue").onclick=()=>{if(passo<PASSOS.length-1)irPara(passo+1+(passo===0&&!orcado()?1:0));else enviarLanc();};
-$("b-limpa").onclick=e=>{const b=e.currentTarget;if(b.dataset.c){F=novo();passo=0;rascunho();renderForm();b.textContent="Limpar";delete b.dataset.c;toast("Formulário limpo");}else{b.textContent="Confirmar limpeza";b.dataset.c=1;setTimeout(()=>{b.textContent="Limpar";delete b.dataset.c;},3000);}};
+$("b-segue").onclick=()=>{if(passo<PASSOS.length-1){if(sujo&&minimoOk(F))salvarParcial(true);irPara(passo+1+(passo===0&&!orcado()?1:0));}else enviarLanc();};
+$("b-salva").onclick=()=>salvarParcial(false);
+$("b-limpa").onclick=e=>{const b=e.currentTarget;if(b.dataset.c){F=novo();passo=0;sujo=false;clearTimeout(tAuto);try{localStorage.setItem("orc-rascunho",JSON.stringify(F));}catch(x){}renderForm();b.textContent="Limpar";delete b.dataset.c;toast("Formulário limpo");}else{b.textContent="Confirmar limpeza";b.dataset.c=1;setTimeout(()=>{b.textContent="Limpar";delete b.dataset.c;},3000);}};
 
 function ligaNum(attr,obj){document.querySelectorAll(`[data-${attr}]`).forEach(i=>i.addEventListener("input",()=>{F[obj][i.dataset[attr==="es"?"es":attr]]=num(i.value);rascunho();resumo();if(attr==="d")$("d-carro").textContent=brl(calc(F).carroTot);}));}
 ligaNum("o","orc");ligaNum("d","desl");ligaNum("es","est");ligaNum("sv","serv");
@@ -480,7 +527,12 @@ $("i-obs").addEventListener("input",e=>{F.obs=e.target.value;rascunho();});
 $("i-resp").addEventListener("change",e=>{const t=TECNICOS.find(x=>x.login===e.target.value);F.resp=t?{login:t.login,nome:t.nome}:null;rascunho();renderCampo();});
 function renderCampo(){botaoExcluir();
   const box=$("i-campo"),aberta=F.status==="Em campo";
-  if(aberta){box.innerHTML=`<b class="t">📱 Visita aberta em campo</b><span>${esc(F.resp?F.resp.nome:"")} está lançando as notas fiscais pelo celular (${notasAtivas(F).length} nota(s), ${brl(notasAtivas(F).reduce((a,n)=>a+n.valor,0))}). Complete os outros custos e envie para aprovação no fim: a visita é encerrada para o técnico.</span>`;return;}
+  if(aberta){const c=F.campo&&F.campo.concluido,tec=esc(F.resp?F.resp.nome:"o técnico"),q=`${notasAtivas(F).length} nota(s), ${brl(notasAtivas(F).reduce((a,n)=>a+n.valor,0))}`;
+    box.innerHTML=c?`<b class="t">✅ Notas concluídas pelo técnico</b><span>${tec} concluiu o envio das notas${F.campo.em?" em "+esc(F.campo.em):""} (${q}). Ele não altera mais nada; complete os outros custos e envie para aprovação.</span>
+      <button type="button" class="btn sec" id="b-reabrir" style="align-self:flex-start">Reabrir para o técnico enviar mais notas</button>`
+     :`<b class="t">📱 Visita aberta em campo</b><span>${tec} está lançando as notas fiscais pelo celular (${q}). Quando terminar, ele toca em “Concluir envio das notas”. Complete os outros custos e envie para aprovação no fim.</span>`;
+    if($("b-reabrir"))$("b-reabrir").onclick=async()=>{F.reabrirCampo=true;F.campo=null;sujo=true;if(await salvarParcial(true)){renderCampo();toast("Visita reaberta para o técnico");}};
+    return;}
   box.innerHTML=`<b class="t">📱 Gastos adicionais pelo técnico</b><span>${F.resp?`<b>${esc(F.resp.nome)}</b> vai lançar as notas fiscais da visita pelo celular (app Gastos de Campo). Abra a visita agora; você completa o resto depois.`:"Escolha o responsável em campo acima para ele lançar as notas fiscais pelo celular."}</span>
    ${F.resp?'<button type="button" class="btn pri" id="b-abrir-campo" style="align-self:flex-start">Abrir visita para o técnico</button>':""}`;
   if($("b-abrir-campo"))$("b-abrir-campo").onclick=abrirEmCampo;
@@ -491,8 +543,10 @@ async function abrirEmCampo(){
   if(e.length){toast("Para abrir, informe "+e.join(", ")+".");return;}
   v.id=v.id||("L"+Date.now().toString(36));v.status="Em campo";v.cad=new Date().toISOString().slice(0,10);
   if(!await gravar(v))return;
-  const sup=v.supervisor;F=novo();F.supervisor=sup;passo=0;rascunho();
-  toast(`Visita aberta para ${v.resp.nome.split(" ")[0]} lançar as notas`);abrirAba("visitas");setTimeout(()=>abrirVisita("a:"+v.id),150);
+  F.id=v.id;F.status="Em campo";F.cad=v.cad;F.salvoEm=new Date().toTimeString().slice(0,5);sujo=false;
+  try{localStorage.setItem("orc-rascunho",JSON.stringify(F));}catch(e){}
+  renderCampo();renderAndamento();marcaSalvo();
+  toast(`Visita aberta para ${v.resp.nome.split(" ")[0]} lançar as notas. Ela fica em “Lançamentos em andamento”.`);
 }
 
 // busca de obra (cadastro do painel + histórico)
@@ -600,26 +654,28 @@ async function enviarLanc(){
   const v=visitaDoForm(),{e}=validar(v);if(e.length){renderRev();toast("Há pendências no lançamento");return;}
   v.id=v.id||("L"+Date.now().toString(36));v.status=v.status==="Aprovado"?"Aprovado":"Enviado";v.cad=new Date().toISOString().slice(0,10);
   $("b-segue").disabled=true;const ok=await gravar(v);$("b-segue").disabled=false;
-  if(ok){const sup=v.supervisor;F=novo();F.supervisor=sup;passo=0;rascunho();toast(PREVIA?"Lançamento enviado para aprovação (prévia: não vai para a central)":"Lançamento enviado para aprovação");abrirAba("visitas");setTimeout(()=>abrirVisita("a:"+v.id),150);}
+  if(ok){const sup=v.supervisor;F=novo();F.supervisor=sup;passo=0;sujo=false;clearTimeout(tAuto);try{localStorage.setItem("orc-rascunho",JSON.stringify(F));}catch(e){}toast(PREVIA?"Lançamento enviado para aprovação (prévia: não vai para a central)":"Lançamento enviado para aprovação");abrirAba("visitas");setTimeout(()=>abrirVisita("a:"+v.id),150);}
 }
 async function gravar(v){
-  const doc=JSON.parse(JSON.stringify(v));delete doc._k;delete doc._app;
+  const doc=JSON.parse(JSON.stringify(v));delete doc._k;delete doc._app;const reabrir=!!doc.reabrirCampo;
   if(!PREVIA){try{const j=await enviar(CC,{painel:true,acao:"lancSalvar",lancamento:{...doc,notas:(doc.notas||[]).map(n=>({id:n.id,recusada:!!n.recusada}))}});
-    doc.id=j.id||doc.id;doc.status=j.status||doc.status;if(j.notas)doc.notas=j.notas;}catch(err){toast(err.message||"Não foi possível gravar");return false;}}
+    doc.id=j.id||doc.id;doc.status=j.status||doc.status;if(j.notas)doc.notas=j.notas;doc.campo=j.campo||null;}catch(err){toast(err.message||"Não foi possível gravar");return false;}}
   if(PREVIA){const L=lsGet(LS_PREVIA,[]),k=L.findIndex(x=>x.id===doc.id);
-    if(k>=0){const rec=new Set((doc.notas||[]).filter(n=>n.recusada).map(n=>n.id));doc.notas=(L[k].notas||[]).map(n=>({...n,recusada:rec.has(n.id)}));L[k]=doc;}else L.push(doc);
+    if(k>=0){const rec=new Set((doc.notas||[]).filter(n=>n.recusada).map(n=>n.id));doc.notas=(L[k].notas||[]).map(n=>({...n,recusada:rec.has(n.id)}));doc.campo=doc.reabrirCampo?null:(L[k].campo||null);L[k]=doc;}else L.push(doc);
     lsSet(LS_PREVIA,L);}
+  delete doc.reabrirCampo;if(reabrir)doc.campo=null;
   const r={...doc,_app:true,_k:"a:"+doc.id},i=APP.findIndex(x=>x.id===doc.id);if(i>=0)APP[i]=r;else APP.push(r);
   v.id=doc.id;return true;
 }
 
 /* ---------- início ---------- */
+window.addEventListener("beforeunload",e=>{if(sujo&&F&&minimoOk(F)){salvarParcial(true);e.preventDefault();e.returnValue="";}});
 function iniciar(){
   if(PREVIA){const a=$("aviso-previa");a.hidden=false;a.textContent="Prévia para aprovação: sem login e sem gravação. Dados da planilha BD - CUSTOS DE INSTALAÇÃO e da carga da Agenda Técnica.";
     document.querySelectorAll(".troca-app a:not([aria-current]), #b-sair").forEach(a=>a.addEventListener("click",e=>{e.preventDefault();toast("Na prévia só a aba Orçado x Realizado está disponível");}));}
   if(PREVIA)window.addEventListener("storage",ev=>{if(ev.key!==LS_PREVIA)return;APP=lsGet(LS_PREVIA,[]).map(v=>({...v,_app:true,_k:"a:"+v.id}));
-    if(F&&F.id){const x=APP.find(v=>v.id===F.id);if(x){F.notas=x.notas||[];if(S.aba==="lancar"){renderCampo();renderAd();resumo();}}}
-    if(S.aba==="resumo")renderResumo();if(S.aba==="visitas")renderVisitas();toast("Chegou nota nova do técnico");});
+    if(F&&F.id){const x=APP.find(v=>v.id===F.id);if(x){F.notas=x.notas||[];F.campo=x.campo||null;if(S.aba==="lancar"){renderCampo();renderAd();resumo();renderAndamento();}}}
+    if(S.aba==="resumo")renderResumo();if(S.aba==="visitas")renderVisitas();toast("Atualização do técnico recebida");});
   if(!PREVIA){
     // notas novas dos técnicos: atualiza sozinho enquanto houver visita em campo
     let ult=Date.now();
@@ -627,7 +683,7 @@ function iniciar(){
       try{const j=await enviar(CC,{painel:true,acao:"listar"});const antes=APP.reduce((a,v)=>a+(v.notas||[]).length,0);
         APP=(j.lancamentos||[]).map(v=>({...v,_app:true,_k:"a:"+v.id}));
         const depois=APP.reduce((a,v)=>a+(v.notas||[]).length,0);
-        if(F&&F.id){const x=APP.find(v=>v.id===F.id);if(x){const rec=new Set((F.notas||[]).filter(n=>n.recusada).map(n=>n.id));F.notas=(x.notas||[]).map(n=>({...n,recusada:n.recusada||rec.has(n.id)}));if(S.aba==="lancar"){renderCampo();renderAd();resumo();}}}
+        if(F&&F.id){const x=APP.find(v=>v.id===F.id);if(x){const rec=new Set((F.notas||[]).filter(n=>n.recusada).map(n=>n.id));F.notas=(x.notas||[]).map(n=>({...n,recusada:n.recusada||rec.has(n.id)}));F.campo=x.campo||null;if(S.aba==="lancar"){renderCampo();renderAd();resumo();renderAndamento();}}}
         if(S.aba==="resumo")renderResumo();if(S.aba==="visitas")renderVisitas();
         if(depois>antes)toast("Chegou nota nova do técnico");}catch(e){}};
     setInterval(buscar,120000);

@@ -47,6 +47,11 @@ async function salvarNota(n){
     v.notas=(v.notas||[]).concat([n]);ls.set(LS_PREVIA,L);return;}
   await chamar("notaSalvar",{visita:atual.id,nota:n});
 }
+async function concluirNotas(){
+  if(PREVIA){const L=ls.get(LS_PREVIA,[]);const v=L.find(x=>x.id===atual.id);if(!v||v.status!=="Em campo")throw new Error("Esta visita já foi encerrada.");
+    v.campo={concluido:true,em:new Date().toLocaleString("pt-BR").slice(0,17),login:eu.login,nome:eu.nome};ls.set(LS_PREVIA,L);return;}
+  await chamar("campoConcluir",{visita:atual.id});
+}
 async function excluirNota(id){
   if(PREVIA){const L=ls.get(LS_PREVIA,[]);const v=L.find(x=>x.id===atual.id);if(!v||v.status!=="Em campo")throw new Error("Esta visita já foi encerrada.");v.notas=(v.notas||[]).filter(x=>x.id!==id);ls.set(LS_PREVIA,L);return;}
   await chamar("notaExcluir",{visita:atual.id,nota:id});
@@ -58,7 +63,7 @@ const somaNotas=v=>(v.notas||[]).filter(n=>!n.recusada).reduce((a,n)=>a+(n.valor
 function cartao(v,aberta){
   const b=document.createElement("button");b.type="button";b.className="card visita";
   b.innerHTML=`<b>${esc(v.idObra)} - ${esc(v.obra)}</b><div class="meta"><span>Pedido ${esc(v.pedido)} · ${fmt(v.ini)} a ${fmt(v.fim)}</span></div>
-   <div class="meta"><span>${(v.notas||[]).length} nota(s) ${aberta?"":"· encerrada"}</span><span class="tot">${brl(somaNotas(v))}</span></div>`;
+   <div class="meta"><span>${(v.notas||[]).length} nota(s) ${!aberta?"· encerrada":concl(v)?"· ✓ envio concluído":""}</span><span class="tot">${brl(somaNotas(v))}</span></div>`;
   b.onclick=()=>abrirVisita(v.id);return b;
 }
 function renderLista(){
@@ -70,19 +75,29 @@ function renderLista(){
   $("det-enc").hidden=!enc.length;const E=$("lista-enc");E.innerHTML="";enc.forEach(v=>E.append(cartao(v,false)));
   mostra("v-lista");
 }
+const concl=v=>!!(v.campo&&v.campo.concluido);
 function abrirVisita(id){
   atual=VIS.find(v=>v.id===id);if(!atual)return;
-  const aberta=atual.status==="Em campo";
+  const fim=concl(atual),aberta=atual.status==="Em campo"&&!fim;
   $("vis-cab").innerHTML=`<h2>Visita</h2><b>${esc(atual.idObra)} - ${esc(atual.obra)}</b>
    <div class="status">Pedido ${esc(atual.pedido)} · ${esc(String(atual.tipo||"").toLowerCase())} · ${fmt(atual.ini)} a ${fmt(atual.fim)}</div>
    <div style="display:flex;justify-content:space-between;align-items:baseline"><span class="status">Total das suas notas</span><span class="tot" style="font-size:1.3rem">${brl(somaNotas(atual))}</span></div>
-   ${aberta?"":'<span class="pill p-atn">Encerrada pelo supervisor: não recebe mais notas</span>'}`;
+   ${atual.status!=="Em campo"?'<span class="pill p-atn">Encerrada pelo supervisor: não recebe mais notas</span>':fim?`<div class="concluido">✅ Você concluiu o envio das notas${atual.campo.em?" em "+esc(atual.campo.em):""}. Elas não podem mais ser alteradas. Se faltou alguma, peça ao supervisor para reabrir.</div>`:""}`;
+  $("b-concluir").hidden=!aberta;$("dica-concluir").hidden=!aberta;delete $("b-concluir").dataset.c;$("b-concluir").textContent="✅ Concluir envio das notas";
   $("b-foto").hidden=!aberta;document.querySelector('label[for="in-galeria"]').hidden=!aberta;
   const N=$("notas");const ns=(atual.notas||[]).slice().reverse();
   N.innerHTML=ns.length?ns.map(n=>`<div class="nota"><img src="${esc(n.mini||n.foto||"")}" alt="Nota"><div class="d">${esc(n.desc)}<small>${fmt(n.data)}${n.loja?" · "+esc(n.loja):""}</small>${n.digitado?'<span class="pill p-atn">valor digitado</span> ':""}${n.recusada?'<span class="pill p-ruim">recusada pelo supervisor</span>':""}</div><div class="v">${brl(n.valor)}${aberta&&!n.recusada?`<br><button type="button" class="linkbtn" data-del="${esc(n.id)}" style="font-size:.74rem">excluir</button>`:""}</div></div>`).join(""):`<p class="status" style="margin:0">Nenhuma nota ainda. Toque em "Fotografar nota fiscal".</p>`;
   N.querySelectorAll("[data-del]").forEach(b=>b.onclick=async()=>{if(b.dataset.c){try{await excluirNota(b.dataset.del);await carregar();abrirVisita(atual.id);toast("Nota excluída");}catch(e){toast(e.message);}}else{b.dataset.c=1;b.textContent="toque de novo";setTimeout(()=>{b.textContent="excluir";delete b.dataset.c;},3000);}});
   mostra("v-visita");
 }
+$("b-concluir").onclick=async e=>{
+  const b=e.currentTarget,ns=(atual.notas||[]).filter(n=>!n.recusada);
+  if(!b.dataset.c){b.dataset.c=1;b.textContent=`Confirmar: enviei todas as ${ns.length} nota(s) (${brl(somaNotas(atual))})`;
+    toast("Depois de concluir, as notas desta visita não podem mais ser alteradas");setTimeout(()=>{if(b.dataset.c){delete b.dataset.c;b.textContent="✅ Concluir envio das notas";}},6000);return;}
+  b.disabled=true;
+  try{await concluirNotas();await carregar();abrirVisita(atual.id);toast("Envio das notas concluído. Obrigado!");}
+  catch(err){toast(err.message||"Não foi possível concluir");}finally{b.disabled=false;}
+};
 $("b-voltar").onclick=async()=>{await carregar().catch(()=>{});renderLista();};
 $("b-cancelar").onclick=()=>abrirVisita(atual.id);
 

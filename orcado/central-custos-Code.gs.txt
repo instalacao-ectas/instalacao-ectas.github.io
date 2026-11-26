@@ -28,13 +28,13 @@ const DIAS_MES = 21;     // valor dia  = custo mensal ÷ 21
 const DIARIO_URL = "https://script.google.com/macros/s/AKfycbwm4iDoUQ32nVi2vRhRKCr01LoFGXAkA2zWl3lEWunhhHS2h4_0e3EOEtIzmHSL-LPKrg/exec";
 const DIARIO_CHAVE = "ectas-rdo-campo-2026";
 
-const STATUS = ["Histórico", "Em campo", "Enviado", "Aprovado"];
+const STATUS = ["Histórico", "Rascunho", "Em campo", "Enviado", "Aprovado"];
 
 /* ---------- abas da planilha ---------- */
 const T = {
   visitas: { aba: "Visitas", cols: ["id", "status", "origem", "tipo", "pedido", "id_obra", "obra", "inicio", "fim", "supervisor",
       "orcado", "realizado", "saldo", "lancado_em", "aprovado_em", "dados"],
-    tit: ["Código interno", "Status (Histórico, Em campo, Enviado ou Aprovado)", "Origem", "Tipo da visita", "Pedido", "ID da obra", "Obra", "Início", "Fim", "Supervisor",
+    tit: ["Código interno", "Status (Histórico, Rascunho, Em campo, Enviado ou Aprovado)", "Origem", "Tipo da visita", "Pedido", "ID da obra", "Obra", "Início", "Fim", "Supervisor",
       "Orçado [R$]", "Realizado [R$]", "Saldo [R$]", "Lançado em", "Aprovado em", "Dados completos (não editar)"] },
   func: { aba: "Colaboradores", cols: ["nome", "nome_agenda", "salario", "beneficios", "impostos", "ativo", "alterado_em", "historico"],
     tit: ["Nome", "Nome na Agenda Técnica (se for diferente)", "Salário [R$]", "Benefícios [R$]", "Impostos [R$]", "Ativo (Sim/Não)",
@@ -241,7 +241,7 @@ function listar_() {
 function lancSalvar_(v) {
   const id = limpa_(v.id, 40) || ("L" + Utilities.getUuid().replace(/-/g, "").slice(0, 12));
   if (!limpa_(v.idObra) || !limpa_(v.pedido) || !ehData_(v.ini) || !ehData_(v.fim)) return { ok: false, erro: "Obra, pedido e datas são obrigatórios." };
-  const status = v.status === "Aprovado" ? "Aprovado" : v.status === "Em campo" ? "Em campo" : "Enviado";
+  const status = ["Aprovado", "Em campo", "Rascunho"].indexOf(v.status) >= 0 ? v.status : "Enviado";   // Rascunho = salvo pelo supervisor para continuar depois
   const resp = v.resp && limpa_(v.resp.login) ? { login: limpa_(v.resp.login, 60).toLowerCase(), nome: limpa_(v.resp.nome, 100) } : null;
   if (status === "Em campo" && !resp) return { ok: false, erro: "Escolha o responsável em campo antes de abrir a visita para o técnico." };
   const dados = Object.assign({}, v, { id: id, status: status, resp: resp });
@@ -256,13 +256,17 @@ function lancSalvar_(v) {
     if (String(n.recusada || "") !== r) sh.getRange(n._linha, T.notas.cols.indexOf("recusada") + 1).setValue(r);
   });
   delete dados.notas;
+  // conclusão do técnico: vale a da central; o supervisor só pode reabrir
+  const campoAtual = atual ? (visita_(atual).campo || null) : null;
+  dados.campo = v.reabrirCampo ? null : campoAtual;
+  delete dados.reabrirCampo;
   const notas = notasPorVisita_()[id] || [];
   const t = totais_(Object.assign({}, dados, { notas: notas }));
   gravar_("visitas", { id: id, status: status, origem: "Painel", tipo: limpa_(v.tipo, 40), pedido: limpa_(v.pedido, 30), id_obra: limpa_(v.idObra, 30),
     obra: limpa_(v.obra, 150), inicio: v.ini, fim: v.fim, supervisor: limpa_(v.supervisor, 80), orcado: t.orc, realizado: t.real, saldo: t.saldo,
     lancado_em: atual ? atual.lancado_em : agora_(), aprovado_em: status === "Aprovado" ? (atual && atual.aprovado_em || agora_()) : "",
     dados: JSON.stringify(dados) }, atual ? atual._linha : 0);
-  return { ok: true, id: id, status: status, notas: notas };
+  return { ok: true, id: id, status: status, notas: notas, campo: dados.campo };
 }
 function lancExcluir_(id) {
   const atual = ler_("visitas").find(l => String(l.id) === id);
@@ -356,6 +360,7 @@ function acaoCampo_(b) {
   try {
     if (b.acao === "notaSalvar") return notaSalvar_(u, String(b.visita || ""), b.nota || {});
     if (b.acao === "notaExcluir") return notaExcluir_(u, String(b.visita || ""), String(b.nota || ""));
+    if (b.acao === "campoConcluir") return campoConcluir_(u, String(b.visita || ""));
     return { ok: false, erro: "ação desconhecida" };
   } finally { lock.releaseLock(); }
 }
@@ -364,7 +369,7 @@ function campoListar_(u) {
   const nv = notasPorVisita_(), limite = Utilities.formatDate(new Date(Date.now() - 45 * 864e5), TZ, "yyyy-MM-dd");
   const visitas = ler_("visitas").filter(l => String(l.status) !== "Histórico").map(visita_)
     .filter(v => doTecnico_(v, u) && (v.status === "Em campo" || String(v.fim || "") >= limite))
-    .map(v => ({ id: v.id, status: v.status, pedido: v.pedido, idObra: v.idObra, obra: v.obra, tipo: v.tipo, ini: v.ini, fim: v.fim,
+    .map(v => ({ id: v.id, status: v.status, pedido: v.pedido, idObra: v.idObra, obra: v.obra, tipo: v.tipo, ini: v.ini, fim: v.fim, campo: v.campo || null,
       notas: (nv[v.id] || []).filter(n => n.login === u.login) }))
     .sort((a, b) => String(b.ini).localeCompare(String(a.ini)));
   return { ok: true, usuario: u, visitas: visitas };
@@ -375,7 +380,8 @@ function visitaAberta_(u, id) {
   const v = visita_(l);
   if (!doTecnico_(v, u)) return { erro: "Você não é o responsável em campo desta visita." };
   if (v.status !== "Em campo") return { erro: "Esta visita já foi encerrada pelo supervisor." };
-  return { v: v };
+  if (v.campo && v.campo.concluido) return { erro: "Você já concluiu o envio das notas desta visita. Peça ao supervisor para reabrir, se precisar." };
+  return { v: v, l: l };
 }
 function notaSalvar_(u, idVisita, n) {
   const a = visitaAberta_(u, idVisita);
@@ -398,6 +404,15 @@ function notaSalvar_(u, idVisita, n) {
     enviada_em: agora_(), recusada: "", foto_id: fotoId, foto_link: link, miniatura: mini, leitura: limpa_(n.leitura, 1500), digitado: n.digitado ? "Sim" : "" }, 0);
   atualizarTotais_(idVisita);
   return { ok: true, id: id };
+}
+// o técnico avisa que enviou todas as notas: a partir daí não inclui nem exclui mais (o supervisor pode reabrir)
+function campoConcluir_(u, idVisita) {
+  const a = visitaAberta_(u, idVisita);
+  if (a.erro) return { ok: false, erro: a.erro };
+  const v = a.v; v.campo = { concluido: true, em: agora_(), login: u.login, nome: u.nome };
+  const dados = Object.assign({}, v); delete dados.notas; delete dados._linha;
+  aba_("visitas").getRange(a.l._linha, T.visitas.cols.indexOf("dados") + 1).setValue(JSON.stringify(dados));
+  return { ok: true, campo: v.campo };
 }
 function notaExcluir_(u, idVisita, idNota) {
   const a = visitaAberta_(u, idVisita);

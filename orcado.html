@@ -92,6 +92,14 @@ thead th{position:sticky;top:0;background:var(--surface);z-index:1}
 .t-orc td{vertical-align:middle}.t-orc td[data-r]{color:var(--ok);font-weight:700}.t-orc td[data-r].neg{color:var(--ruim)}.t-orc td[data-r].zero{color:var(--muted);font-weight:500}
 .t-orc tfoot td{font-weight:800;border-top:2px solid var(--line)}
 .t-orc .ir{font:inherit;font-size:.78rem;border:0;background:none;color:var(--accent);text-decoration:underline;cursor:pointer;padding:0;text-align:left}
+.la-cab{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:10px}
+.la-lista{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:10px}
+.la-item{font:inherit;text-align:left;display:flex;flex-direction:column;gap:4px;border:1px solid var(--line);border-radius:10px;padding:10px 12px;background:var(--surface);cursor:pointer;color:inherit}
+.la-item:hover{border-color:var(--accent)}.la-item.on{border:2px solid var(--accent);background:var(--chip)}
+.la-item b{font-size:.88rem}.la-item span{font-size:.78rem;color:var(--muted)}
+.la-etapas{display:flex;flex-wrap:wrap;gap:4px 8px}.la-etapas i{font-style:normal;font-size:.72rem;color:var(--muted)}.la-etapas i.ok{color:var(--ok);font-weight:700}
+.la-acao{align-self:flex-end;color:var(--accent)!important;font-weight:700}
+.salvo{margin:0 0 6px;font-size:.78rem;text-align:right;min-height:1em}.salvo.ok{color:var(--ok)}.salvo.pend{color:var(--atn)}
 .media-geral{margin:0;font-size:.85rem;background:var(--ok-soft);border-radius:8px;padding:8px 12px}
 .g-form{display:flex;flex-direction:column;gap:10px;border:1px solid var(--accent);border-radius:10px;padding:12px;margin:10px 0;background:var(--surface)}
 .g-form .campos{grid-template-columns:repeat(auto-fit,minmax(150px,1fr))}
@@ -157,7 +165,7 @@ thead th{position:sticky;top:0;background:var(--surface);z-index:1}
     <div class="sub-abas" role="tablist" aria-label="Orçado x Realizado">
       <button type="button" role="tab" data-aba="resumo" aria-selected="true">Resumo</button>
       <button type="button" role="tab" data-aba="visitas" aria-selected="false">Visitas</button>
-      <button type="button" role="tab" data-aba="lancar" aria-selected="false">+ Novo lançamento</button>
+      <button type="button" role="tab" data-aba="lancar" aria-selected="false">Lançamentos</button>
       <button type="button" role="tab" data-aba="regras" aria-selected="false">Custos e regras</button>
     </div>
 
@@ -208,7 +216,7 @@ thead th{position:sticky;top:0;background:var(--surface);z-index:1}
         <label style="flex:2 1 240px">Buscar (pedido, ID ou nome da obra)<input id="v-q" placeholder="Ex.: 5800, 758, Petrasalis"></label>
         <label>Tipo<select id="v-tipo"></select></label>
         <label>Situação<select id="v-sit"><option value="">Todas</option><option value="estouro">Acima do orçado</option><option value="dentro">Dentro do orçado</option><option value="nao">Não orçado</option><option value="pend">Orçado sem gasto</option></select></label>
-        <label>Status<select id="v-st"><option value="">Todos</option><option value="hist">Histórico da planilha</option><option value="Em campo">Em campo (técnico lançando notas)</option><option value="Enviado">Aguardando aprovação</option><option value="Aprovado">Aprovado</option></select></label>
+        <label>Status<select id="v-st"><option value="">Todos</option><option value="hist">Histórico da planilha</option><option value="Rascunho">Em preenchimento (supervisor)</option><option value="Em campo">Em campo (técnico lançando notas)</option><option value="Enviado">Aguardando aprovação</option><option value="Aprovado">Aprovado</option></select></label>
       </div>
       <section class="card">
         <div class="tabela"><table><thead><tr><th>Pedido</th><th>ID</th><th>Obra</th><th>Tipo</th><th>Início</th><th>Fim</th><th class="n">Orçado</th><th class="n">Realizado</th><th class="n">Saldo</th><th>Situação</th></tr></thead><tbody id="v-body"></tbody></table></div>
@@ -218,6 +226,7 @@ thead th{position:sticky;top:0;background:var(--surface);z-index:1}
 
     <!-- LANÇAR -->
     <section id="a-lancar" hidden>
+      <section class="card" id="l-andamento" style="margin-bottom:14px"></section>
       <div class="form-grid">
         <nav class="passos" id="passos" aria-label="Etapas do lançamento"></nav>
         <section class="card">
@@ -304,9 +313,10 @@ thead th{position:sticky;top:0;background:var(--surface);z-index:1}
             <h2>7. Revisão e envio</h2>
             <div id="rv" style="display:flex;flex-direction:column;gap:10px"></div>
           </div>
+          <p class="salvo" id="l-salvo"></p>
           <div class="navf">
             <button type="button" class="btn sec" id="b-volta">← Voltar</button>
-            <span style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end"><button type="button" class="btn perigo" id="b-exclui" hidden>Excluir lançamento</button><button type="button" class="btn sec" id="b-limpa">Limpar</button><button type="button" class="btn pri" id="b-segue">Avançar →</button></span>
+            <span style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end"><button type="button" class="btn perigo" id="b-exclui" hidden>Excluir lançamento</button><button type="button" class="btn sec" id="b-limpa">Limpar</button><button type="button" class="btn sec" id="b-salva">💾 Salvar e continuar depois</button><button type="button" class="btn pri" id="b-segue">Avançar →</button></span>
           </div>
         </section>
         <section class="card resumo"><h2>Resumo ao vivo</h2><table id="rs"></table></section>
@@ -352,6 +362,6 @@ thead th{position:sticky;top:0;background:var(--surface);z-index:1}
 <script src="config.js?v=8"></script>
 <script src="agenda/config.js?v=3"></script>
 <script src="orcado/config.js?v=2"></script>
-<script src="orcado/orcado.js?v=14" defer></script>
+<script src="orcado/orcado.js?v=15" defer></script>
 </body>
 </html>
