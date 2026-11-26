@@ -108,12 +108,44 @@ function reescrever_(t, lista) {
 function pasta_(nome) { const it = DriveApp.getFoldersByName(nome); return it.hasNext() ? it.next() : DriveApp.createFolder(nome); }
 
 /* ---------- regras de cálculo (as mesmas da planilha BD - CUSTOS DE INSTALAÇÃO) ---------- */
+// horas técnicas e extras pela MÉDIA GERAL do valor hora (mesma base da DIR do comercial), com a média do ANO da visita:
+// ano atual = média dos colaboradores ativos; anos anteriores = média informada (parâmetro media_hora_AAAA) ou, sem ela,
+// a média dos valores hora lançados nas visitas daquele ano.
+let MEDIA_ = undefined, MEDIAS_ANO_ = {};
+const H_DIA_ = HORAS_MES / DIAS_MES;
+function mediaCadastro_() {
+  if (MEDIA_ !== undefined) return MEDIA_;
+  let L = [];
+  try { L = ler_("func").length ? funcs_().filter(f => f.vHora > 0) : []; } catch (e) { L = []; }
+  MEDIA_ = L.length ? { hora: L.reduce((a, f) => a + f.vHora, 0) / L.length, dia: L.reduce((a, f) => a + f.vDia, 0) / L.length } : null;
+  return MEDIA_;
+}
+function mediasInformadas_() {
+  const m = {};
+  try { ler_("param").forEach(p => { const k = String(p.chave).match(/^media_hora_(\d{4})$/); if (k && num_(p.valor) > 0) m[k[1]] = num_(p.valor); }); } catch (e) { }
+  return m;
+}
+function media_(v) {
+  const ano = String((v && (v.ini || v.fim)) || "").slice(0, 4), atual = Utilities.formatDate(new Date(), TZ, "yyyy");
+  if (!/^\d{4}$/.test(ano) || ano >= atual) return mediaCadastro_();
+  if (ano in MEDIAS_ANO_) return MEDIAS_ANO_[ano];
+  const inf = mediasInformadas_()[ano];
+  if (inf) return MEDIAS_ANO_[ano] = { hora: inf, dia: inf * H_DIA_ };
+  let soma = 0, n = 0;
+  try {
+    ler_("visitas").forEach(l => { if (String(l.inicio || "").slice(0, 4) !== ano) return;
+      let d = {}; try { d = JSON.parse(String(l.dados || "{}")); } catch (e) { }
+      (d.equipe || []).forEach(x => { if (num_(x.vHora) > 0) { soma += num_(x.vHora); n++; } }); });
+  } catch (e) { }
+  return MEDIAS_ANO_[ano] = n ? { hora: soma / n, dia: soma / n * H_DIA_ } : mediaCadastro_();
+}
 function totais_(v) {
   const d = v.desl || {}, e = v.est || {}, s = v.serv || {};
   const carro = num_(d.carro) > 150 ? num_(d.carro) : num_(d.carro) * num_(d.diasCarro);  // antigos gravaram o total
   const real = carro + ["aluguel", "uber", "passagem", "pedagio", "bagagem", "combustivel"].reduce((a, k) => a + num_(d[k]), 0)
     + num_(e.hotel) + num_(e.alimentacao) + num_(s.frete) + num_(s.munk)
-    + (v.equipe || []).reduce((a, x) => a + num_(x.vDia) * num_(x.dias) + num_(x.vHora) * (num_(x.h50) * 1.5 + num_(x.h75) * 1.75), 0)
+    + (v.equipe || []).reduce((a, x) => { const m = media_(v) || { dia: num_(x.vDia), hora: num_(x.vHora) };
+        return a + m.dia * num_(x.dias) + m.hora * (num_(x.h50) * 1.5 + num_(x.h75) * 1.75); }, 0)
     + (v.adic || []).reduce((a, x) => a + num_(x.valor), 0)
     + (v.notas || []).filter(n => !n.recusada).reduce((a, n) => a + num_(n.valor), 0);
   const o = v.orc;
@@ -203,7 +235,7 @@ function listar_() {
   return { ok: true, planilha: planilha_().getUrl(),
     visitas: todas.filter(v => v.status === "Histórico"),
     lancamentos: todas.filter(v => v.status !== "Histórico"),
-    funcionarios: funcs_(), carroDia: num_(p.carro_dia) || 150 };
+    funcionarios: funcs_(), carroDia: num_(p.carro_dia) || 150, medias: mediasInformadas_() };
 }
 
 function lancSalvar_(v) {
@@ -244,10 +276,28 @@ function lancExcluir_(id) {
   return { ok: true };
 }
 function paramSalvar_(chave, valor) {
-  if (["carro_dia"].indexOf(chave) < 0) return { ok: false, erro: "parâmetro desconhecido" };
+  const media = /^media_hora_\d{4}$/.test(String(chave || ""));
+  if (["carro_dia"].indexOf(chave) < 0 && !media) return { ok: false, erro: "parâmetro desconhecido" };
   const lista = ler_("param"), x = lista.find(p => p.chave === chave);
+  if (media) {   // média do valor hora de um ano anterior; vazio/0 = volta a ser calculada pelos lançamentos
+    if (!(r2_(valor) > 0)) { if (x) aba_("param").deleteRow(x._linha); return { ok: true }; }
+    gravar_("param", { chave: chave, valor: String(r2_(valor)), descricao: "Média do valor hora usada na DIR em " + chave.slice(-4) + " [R$/h]" }, x ? x._linha : 0);
+    return { ok: true };
+  }
   gravar_("param", { chave: chave, valor: String(r2_(valor)), descricao: x ? x.descricao : "" }, x ? x._linha : 0);
   return { ok: true };
+}
+
+// rode pelo editor para refazer orçado, realizado e saldo da aba Visitas com a regra atual (média geral por ano)
+function recalcularTotais() {
+  const sh = aba_("visitas"), c = T.visitas.cols, nv = notasPorVisita_();
+  const linhas = ler_("visitas");
+  linhas.forEach(l => {
+    const v = visita_(l); v.notas = nv[v.id] || [];
+    const t = totais_(v);
+    sh.getRange(l._linha, c.indexOf("orcado") + 1, 1, 3).setValues([[String(t.orc), String(t.real), String(t.saldo)]]);
+  });
+  Logger.log(linhas.length + " visitas recalculadas.");
 }
 
 /* ---------- colaboradores: o supervisor inclui, altera salário e desativa pelo painel ---------- */
@@ -272,6 +322,7 @@ function funcSalvar_(c) {
     hist = (hist ? hist + " | " : "") + quando.slice(0, 10) + ": " + [sal, ben, imp].map(x => String(x).replace(".", ",")).join(" + ");
   gravar_("func", { nome: nome, nome_agenda: limpa_(c.agenda, 80), salario: String(sal).replace(".", ","), beneficios: String(ben).replace(".", ","),
     impostos: String(imp).replace(".", ","), ativo: c.ativo === false ? "Não" : "Sim", alterado_em: quando, historico: hist.slice(-2000) }, atual ? atual._linha : 0);
+  MEDIA_ = undefined; MEDIAS_ANO_ = {};
   return { ok: true, lista: funcLista_(), funcionarios: funcs_() };
 }
 

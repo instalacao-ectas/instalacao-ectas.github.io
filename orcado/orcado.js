@@ -37,14 +37,44 @@ let TECNICOS=[], senha="", HIST=[], APP=[], FUNC=[], OBRAS=[], AGENDA=[], carroD
 const S={aba:"resumo"};
 
 /* ---------- cálculo de uma visita (mesmas regras da planilha BD - CUSTOS DE INSTALAÇÃO) ---------- */
+/* Horas técnicas e extras do realizado: pela MÉDIA GERAL do valor hora dos colaboradores ativos,
+   a mesma base que o comercial usa na DIR. Vale para todas as visitas, inclusive as já lançadas. */
+let _mf=null,_mc=null,MEDIAS_P={},_ma={};
+const ANO_ATUAL=String(new Date().getFullYear()),H_DIA=176/21;
+// média do cadastro atual (colaboradores ativos)
+function MEDIA(){
+  if(_mf===FUNC)return _mc;_mf=FUNC;_ma={};
+  const L=FUNC.filter(f=>f.vHora>0);
+  if(!L.length)return _mc=null;
+  const h=L.reduce((a,f)=>a+f.vHora,0)/L.length,d=L.reduce((a,f)=>a+f.vDia,0)/L.length;
+  return _mc={hora:h,dia:d,n:L.length,origem:"cadastro"};
+}
+const anoDe=v=>String((v&&(v.ini||v.fim))||"").slice(0,4);
+// média do ano da visita: ano atual = cadastro; anos anteriores = valor informado ou, sem ele, a média dos valores lançados naquele ano
+function mediaAno(ano){
+  const cad=MEDIA();
+  if(!/^\d{4}$/.test(ano||"")||ano>=ANO_ATUAL)return cad;
+  if(_ma[ano])return _ma[ano];
+  const inf=num(MEDIAS_P[ano]);
+  if(inf>0)return _ma[ano]={hora:inf,dia:inf*H_DIA,origem:"informada"};
+  const eq=todas().filter(v=>anoDe(v)===ano).flatMap(v=>v.equipe||[]).filter(x=>x.vHora>0);
+  if(!eq.length)return _ma[ano]=cad;
+  const h=eq.reduce((a,x)=>a+x.vHora,0)/eq.length;
+  return _ma[ano]={hora:h,dia:h*H_DIA,n:eq.length,origem:"lançamentos"};
+}
+function htEq(x,v){const m=mediaAno(anoDe(v));return (m?m.dia:(x.vDia||0))*(x.dias||0);}
+function heEq(x,v){const m=mediaAno(anoDe(v));return (m?m.hora:(x.vHora||0))*((x.h50||0)*1.5+(x.h75||0)*1.75);}
+function textoMedia(v){const a=anoDe(v)||ANO_ATUAL,m=mediaAno(a);if(!m)return "";
+  const o=m.origem==="cadastro"?`média atual dos ${m.n} colaboradores ativos`:m.origem==="informada"?`média de ${a} informada`:`média de ${a} calculada pelos lançamentos do ano`;
+  return `Média geral usada (${o}): valor hora <b>${brl(m.hora)}</b> · valor dia <b>${brl(m.dia)}</b>`;}
 function calc(v){
   const d=v.desl||{},e=v.est||{},s=v.serv||{};
   // Lançamentos antigos gravaram o total do carro no campo da diária: acima de 150 é tratado como total.
   const carroTot=(d.carro||0)>150?(d.carro||0):(d.carro||0)*(d.diasCarro||0);
   const real={desl:carroTot+(d.aluguel||0)+(d.uber||0)+(d.passagem||0)+(d.pedagio||0)+(d.bagagem||0)+(d.combustivel||0),
     est:(e.hotel||0)+(e.alimentacao||0),
-    ht:(v.equipe||[]).reduce((a,x)=>a+(x.vDia||0)*(x.dias||0),0),
-    he:(v.equipe||[]).reduce((a,x)=>a+(x.vHora||0)*((x.h50||0)*1.5+(x.h75||0)*1.75),0),
+    ht:(v.equipe||[]).reduce((a,x)=>a+htEq(x,v),0),
+    he:(v.equipe||[]).reduce((a,x)=>a+heEq(x,v),0),
     adic:(v.adic||[]).reduce((a,x)=>a+(x.valor||0),0)+(v.notas||[]).filter(n=>!n.recusada).reduce((a,n)=>a+(n.valor||0),0),frete:s.frete||0,munk:s.munk||0};
   real.total=CATS.reduce((a,[k])=>a+real[k],0);
   let orc=null;
@@ -109,7 +139,7 @@ async function carregar(){
   HIST=(custos.visitas||[]).map(v=>({...v,_k:"h:"+v.id}));
   APP=(custos.lancamentos||[]).map(v=>({...v,_app:true,_k:"a:"+v.id}));
   FUNC=(custos.funcionarios||[]).slice().sort((a,b)=>a.nome.localeCompare(b.nome));
-  carroDia=num(custos.carroDia)||150;
+  carroDia=num(custos.carroDia)||150;MEDIAS_P=custos.medias||{};_ma={};
   AGENDA=agenda;
   const vistos=new Set();OBRAS=[];
   obrasPainel.concat(HIST.map(v=>({id:v.idObra,cliente:v.obra,pedido:v.pedido}))).forEach(o=>{const k=idObra(o.id)||norm(o.cliente);if(!k||vistos.has(k))return;vistos.add(k);OBRAS.push({...o,id:idObra(o.id)});});
@@ -225,7 +255,7 @@ function abrirVisita(k,voltar){
   <tr class="tot"><td>Total</td><td></td><td></td><td class="n">${o&&o.total?brl(o.total):"-"}</td><td class="n">${brl(r.total)}</td>${cel(o&&o.total?c.saldo:-r.total)}</tr></tbody></table></div>`;
   if((v.equipe||[]).length){
     h+=`<h2 style="margin:6px 0 0;font-size:.8rem;text-transform:uppercase;letter-spacing:.08em;color:var(--accent)">Equipe lançada x Agenda Técnica</h2>
-    <div class="tabela"><table><thead><tr><th>Colaborador</th><th class="n">Dias lançados</th><th class="n">Dias na Agenda</th><th class="n">Até 2h</th><th class="n">Além 2h</th><th class="n">H. técnicas</th><th class="n">H. extras</th></tr></thead><tbody>${v.equipe.map(e=>{const a=ag.find(p=>p.func&&p.func.nome===e.nome);const dif=a&&a.dias!==e.dias;return `<tr><td>${esc(e.nome)}</td><td class="n">${e.dias}</td><td class="n ${dif?"neg":""}">${a?a.dias:"-"}</td><td class="n">${e.h50}</td><td class="n">${e.h75}</td><td class="n">${brl(e.vDia*e.dias)}</td><td class="n">${brl(e.vHora*(e.h50*1.5+e.h75*1.75))}</td></tr>`;}).join("")}</tbody></table></div>`;
+    <div class="tabela"><table><thead><tr><th>Colaborador</th><th class="n">Dias lançados</th><th class="n">Dias na Agenda</th><th class="n">Até 2h</th><th class="n">Além 2h</th><th class="n">H. técnicas</th><th class="n">H. extras</th></tr></thead><tbody>${v.equipe.map(e=>{const a=ag.find(p=>p.func&&p.func.nome===e.nome);const dif=a&&a.dias!==e.dias;return `<tr><td>${esc(e.nome)}</td><td class="n">${e.dias}</td><td class="n ${dif?"neg":""}">${a?a.dias:"-"}</td><td class="n">${e.h50}</td><td class="n">${e.h75}</td><td class="n">${brl(htEq(e,v))}</td><td class="n">${brl(heEq(e,v))}</td></tr>`;}).join("")}</tbody></table></div>`;
     const fora=ag.filter(p=>!v.equipe.some(e=>p.func&&p.func.nome===e.nome));
     if(fora.length)h+=`<div class="alerta-box atn">Na Agenda, também estavam nesta obra no período: ${fora.map(p=>esc(p.nome)+" ("+p.dias+" d)").join(", ")}.</div>`;
     if(!ag.length)h+=`<p class="status">Sem alocações desta obra na Agenda Técnica neste período.</p>`;
@@ -256,7 +286,7 @@ function abrirObra(chave,ano,tp,mes){
   const D={diasCarro:0,carro:0,aluguel:0,uber:0,passagem:0,pedagio:0,bagagem:0,combustivel:0},E={hotel:0,alimentacao:0};
   L.forEach(({v,c})=>{const d=v.desl||{};D.diasCarro+=d.diasCarro||0;D.carro+=c.carroTot;["aluguel","uber","passagem","pedagio","bagagem","combustivel"].forEach(k=>D[k]+=d[k]||0);E.hotel+=(v.est||{}).hotel||0;E.alimentacao+=(v.est||{}).alimentacao||0;});
   // equipe somada
-  const EQ={};L.forEach(({v})=>(v.equipe||[]).forEach(e=>{const x=EQ[e.nome]=EQ[e.nome]||{dias:0,h50:0,h75:0,ht:0,he:0,vis:0};x.dias+=e.dias||0;x.h50+=e.h50||0;x.h75+=e.h75||0;x.ht+=(e.vDia||0)*(e.dias||0);x.he+=(e.vHora||0)*((e.h50||0)*1.5+(e.h75||0)*1.75);x.vis++;}));
+  const EQ={};L.forEach(({v})=>(v.equipe||[]).forEach(e=>{const x=EQ[e.nome]=EQ[e.nome]||{dias:0,h50:0,h75:0,ht:0,he:0,vis:0};x.dias+=e.dias||0;x.h50+=e.h50||0;x.h75+=e.h75||0;x.ht+=htEq(e,v);x.he+=heEq(e,v);x.vis++;}));
   const AD=[];L.forEach(({v})=>{(v.adic||[]).forEach(a=>AD.push({...a,ini:v.ini}));notasAtivas(v).forEach(n=>AD.push({desc:n.desc+" (nota de campo)",valor:n.valor,ini:n.data||v.ini}));});
   const temO=tO>0,saldo=tO-tRc,desv=temO?(tRc-tO)/tO*100:null;
   const cel=n=>`<td class="n ${n<0?"neg":n>0?"pos":""}">${brl(n)}</td>`;
@@ -314,6 +344,8 @@ async function carregarCad(){
   try{FCAD=(await enviar(CC,{painel:true,acao:"funcListar"})).lista||[];}catch(err){toast(err.message||"Não consegui carregar os colaboradores");}
 }
 function renderRegras(){
+  $("g-media").innerHTML=textoMedia()+` · usada nas visitas de ${ANO_ATUAL}. Cada ano usa a sua média (tabela abaixo).`;
+  renderMedias();
   if(!FCAD){$("g-func").innerHTML=`<tr><td colspan="6" class="status">Carregando colaboradores…</td></tr>`;carregarCad().then(()=>{if(FCAD)renderRegras();});}
   else{
     const nomesAg=[...new Set(AGENDA.map(l=>l.func))];
@@ -365,6 +397,20 @@ $("g-form").addEventListener("submit",async e=>{
     toast(PREVIA?`${c.nome} salvo (só nesta prévia)`:`${c.nome} salvo`);
   }catch(err){toast(err.message||"Não foi possível gravar");}finally{b.disabled=false;}
 });
+// média do valor hora por ano
+function renderMedias(){
+  const anos=[...new Set(todas().map(anoDe).filter(a=>/^\d{4}$/.test(a)).concat(ANO_ATUAL))].sort().reverse();
+  $("g-medias").innerHTML=anos.map(a=>{const m=mediaAno(a),atual=a>=ANO_ATUAL;
+    const o=!m?"-":m.origem==="cadastro"?"Cadastro atual (automática)":m.origem==="informada"?"Informada":"Calculada pelos lançamentos do ano";
+    return `<tr><td>${a}</td><td class="n">${m?brl(m.hora):"-"}</td><td class="n">${m?brl(m.dia):"-"}</td><td>${o}</td>
+      <td>${atual?'<span class="status">automática</span>':`<input type="number" step="0.01" min="0" class="num" data-ma="${a}" value="${num(MEDIAS_P[a])>0?MEDIAS_P[a]:""}" placeholder="automática" aria-label="Média do valor hora de ${a}" style="max-width:120px">`}</td></tr>`;}).join("");
+  $("g-medias").querySelectorAll("[data-ma]").forEach(el=>el.addEventListener("change",async()=>{
+    const a=el.dataset.ma,v=num(el.value);
+    if(!PREVIA){try{await enviar(CC,{painel:true,acao:"paramSalvar",chave:"media_hora_"+a,valor:v});}catch(err){toast(err.message||"Não foi possível gravar");return;}}
+    if(v>0)MEDIAS_P[a]=v;else delete MEDIAS_P[a];_ma={};renderRegras();
+    toast(v>0?`Média de ${a} gravada${PREVIA?" (só nesta prévia)":""}`:`Média de ${a} volta a ser calculada pelos lançamentos`);
+  }));
+}
 $("g-carro").addEventListener("change",async e=>{carroDia=num(e.target.value);if(PREVIA){toast("Diária alterada só nesta prévia");return;}
   try{await enviar(CC,{painel:true,acao:"paramSalvar",chave:"carro_dia",valor:carroDia});toast("Diária do carro atualizada");}catch(err){toast(err.message||"Não foi possível gravar");}});
 
@@ -480,12 +526,13 @@ function integDesl(){
 }
 // equipe
 function renderEq(){
+  $("eq-media").innerHTML=textoMedia(F);
   $("eq-lista").innerHTML=F.equipe.length?F.equipe.map((x,i)=>`<div class="l-eq" data-i="${i}">
     <select data-k="nome"><option value="">Selecione…</option>${FUNC.map(f=>`<option ${f.nome===x.nome?"selected":""}>${esc(f.nome)}</option>`).join("")}</select>
     <input type="number" step="0.5" min="0" class="num" data-k="dias" value="${x.dias||""}" aria-label="Dias úteis">
     <input type="number" step="0.01" min="0" class="num" data-k="h50" value="${x.h50||""}" aria-label="Horas até 2h">
     <input type="number" step="0.01" min="0" class="num" data-k="h75" value="${x.h75||""}" aria-label="Horas além de 2h">
-    <div class="calc">${brl((x.vDia||0)*(x.dias||0)+(x.vHora||0)*((x.h50||0)*1.5+(x.h75||0)*1.75))}</div>
+    <div class="calc">${brl(htEq(x,F)+heEq(x,F))}</div>
     <button type="button" class="btn sec" data-del aria-label="Remover">✕</button>
     ${x.agenda?'<span class="origem">dias vindos da Agenda Técnica</span>':""}</div>`).join(""):`<p class="status">Nenhum colaborador. Use a Agenda acima ou adicione manualmente.</p>`;
   $("eq-lista").querySelectorAll(".l-eq").forEach(r=>{const i=+r.dataset.i;
