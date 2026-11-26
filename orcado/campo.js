@@ -112,9 +112,25 @@ async function prepararImagem(file){
   for(let i=0;i<p.length;i+=4){let y=.299*p[i]+.587*p[i+1]+.114*p[i+2];y=Math.max(0,Math.min(255,(y-128)*1.5+128));p[i]=p[i+1]=p[i+2]=y;}
   g.putImageData(d,0,0);
   const leitura=await new Promise(ok=>c.toBlob(ok,"image/png"));
+  const cinza=c;
   const m=document.createElement("canvas"),em=Math.min(1,240/Math.max(img.width,img.height));m.width=Math.round(img.width*em);m.height=Math.round(img.height*em);
   m.getContext("2d").drawImage(img,0,0,m.width,m.height);
-  return {foto,leitura,mini:m.toDataURL("image/jpeg",.6)};
+  return {foto,leitura,cinza,mini:m.toDataURL("image/jpeg",.6)};
+}
+// variações para uma 2ª leitura: preto e branco (limiar de Otsu) e foto girada
+function pretoBranco(c0){
+  const c=document.createElement("canvas");c.width=c0.width;c.height=c0.height;const g=c.getContext("2d");g.drawImage(c0,0,0);
+  const d=g.getImageData(0,0,c.width,c.height),p=d.data,h=new Array(256).fill(0);
+  for(let i=0;i<p.length;i+=4)h[p[i]]++;
+  const tot=p.length/4;let soma=0;for(let i=0;i<256;i++)soma+=i*h[i];
+  let sB=0,wB=0,melhor=0,lim=128;for(let t=0;t<256;t++){wB+=h[t];if(!wB)continue;const wF=tot-wB;if(!wF)break;sB+=t*h[t];const mB=sB/wB,mF=(soma-sB)/wF,v=wB*wF*(mB-mF)*(mB-mF);if(v>melhor){melhor=v;lim=t;}}
+  for(let i=0;i<p.length;i+=4){const y=p[i]>lim?255:0;p[i]=p[i+1]=p[i+2]=y;}
+  g.putImageData(d,0,0);return new Promise(ok=>c.toBlob(ok,"image/png"));
+}
+function girar(c0,graus){
+  const c=document.createElement("canvas");const r=graus%180!==0;c.width=r?c0.height:c0.width;c.height=r?c0.width:c0.height;
+  const g=c.getContext("2d");g.translate(c.width/2,c.height/2);g.rotate(graus*Math.PI/180);g.drawImage(c0,-c0.width/2,-c0.height/2);
+  return new Promise(ok=>c.toBlob(ok,"image/png"));
 }
 let worker=null;
 async function lerTexto(blob,progresso){
@@ -130,19 +146,29 @@ async function lerTexto(blob,progresso){
 /* encontra valor total, data, CNPJ e estabelecimento no texto da nota */
 function extrairNota(texto){
   const linhas=texto.split(/\n/).map(l=>l.trim()).filter(Boolean);
-  const reV=/(\d{1,3}(?:[.\s]\d{3})*,\s?\d{2}|\d+,\s?\d{2})(?!\d)/g;
-  const nums=l=>(l.match(reV)||[]).map(x=>valorNum(x.replace(/\s/g,"")));
-  const N=l=>l.normalize("NFD").replace(/[̀-ͯ]/g,"").toUpperCase();
-  const ruim=/ITENS|QTD|QUANT|TRIBUT|IMPOSTO|DESCONTO|DESC\.|TROCO|ACRESC|LEI 12|APROX|SUBTOTAL|SUB-TOTAL|DINHEIRO|RECEBIDO/;
-  const bom=[/VALOR\s*(TOTAL|A\s*PAGAR|PAGO|LIQUIDO)/,/TOTAL\s*(R\$|A\s*PAGAR|GERAL|DA\s*NOTA|DO\s*CUPOM)/,/VL\.?\s*TOTAL/,/^TOTAL\b/,/\bTOTAL\b/];
-  let valor=0,como="";
-  for(const re of bom){
-    for(let i=0;i<linhas.length&&!valor;i++){const l=N(linhas[i]);if(!re.test(l)||ruim.test(l))continue;
-      let v=nums(linhas[i]);if(!v.length&&linhas[i+1])v=nums(linhas[i+1]);
-      if(v.length){valor=v[v.length-1];como=`Valor achado na linha "${linhas[i].slice(0,40)}".`;}}
-    if(valor)break;
+  // valores: 1.234,56 · 1 234,56 · 234,56 · 245.80 (ponto decimal, comum em maquininha e em leitura ruim)
+  const reV=/(?<![\d.,])(\d{1,3}(?:[.\s]\d{3})+,\s?\d{2}|\d+,\s?\d{2}|\d{1,3}(?:,\d{3})*\.\d{2}|\d+\.\d{2})(?![\d.,]\d)/g;
+  const num1=x=>{x=x.replace(/\s/g,"");if(/,\d{2}$/.test(x))return valorNum(x);return parseFloat(x.replace(/,/g,""))||0;};
+  const nums=l=>(l.replace(/(\d)\s?[oO](\d)/g,"$10$2").match(reV)||[]).map(num1).filter(v=>v>0&&v<200000);
+  const N=l=>l.normalize("NFD").replace(/[\u0300-\u036f]/g,"").toUpperCase();
+  const ruim=/ITENS|QTD|QUANT\b|QTDE|TRIBUT|IMPOSTO|ICMS|IPI\b|PIS|COFINS|ISS\b|DESCONTO|DESC\.|TROCO|ACRESC|LEI 12|APROX|SUBTOTAL|SUB-TOTAL|SUB TOTAL|DINHEIRO|RECEBIDO|BASE DE|FRETE|SEGURO|PRODUTOS|PARCELA|SALDO|LIMITE|DATA|HORA/;
+  // ordem de confiança: rótulos de total, depois "valor" genérico
+  const bom=[/VALOR\s*TOTAL\s*DA\s*NOTA|TOTAL\s*DA\s*NOTA|VALOR\s*LIQUIDO|VALOR\s*A\s*PAGAR|TOTAL\s*A\s*PAGAR/,
+    /VALOR\s*(TOTAL|PAGO|APROVADO|COBRADO|DA\s*COMPRA|DA\s*VENDA|DO\s*SERVICO|DOS\s*SERVICOS)|TOTAL\s*(R\$|GERAL|DO\s*CUPOM|C\/?\s*SERV)|VL\.?\s*TOTAL|VLR\.?\s*TOTAL|V\.\s*TOTAL/,
+    /^TOTAL\b|\bTOTAL\b|IMPORTANCIA|QUANTIA|^VALOR\b|\bVALOR\s*:/];
+  let valor=0,como="",conf="";
+  for(let n=0;n<bom.length&&!valor;n++){
+    for(let i=0;i<linhas.length&&!valor;i++){const l=N(linhas[i]),m=l.match(bom[n]);if(!m)continue;
+      const resto=l.slice(m.index);if(ruim.test(resto.replace(bom[n],"")))continue;
+      let v=nums(linhas[i].slice(m.index));
+      for(let k=1;k<=2&&!v.length&&linhas[i+k];k++)if(!ruim.test(N(linhas[i+k])))v=nums(linhas[i+k]);
+      if(v.length){valor=v[v.length-1];conf="alta";como=`Valor achado na linha "${linhas[i].slice(0,40)}".`;}}
   }
-  if(!valor){const todos=linhas.filter(l=>!ruim.test(N(l))).flatMap(nums).filter(x=>x>0&&x<100000);if(todos.length){valor=Math.max(...todos);como="Não achei a linha do TOTAL: usei o maior valor da nota. Confira.";}}
+  // "R$ 350,00" sozinho (recibos)
+  if(!valor){const rs=linhas.filter(l=>/R\s?\$/.test(l)&&!ruim.test(N(l))).flatMap(l=>nums(l.slice(l.search(/R\s?\$/))));
+    const u=[...new Set(rs)];if(u.length===1){valor=u[0];conf="alta";como="Valor achado depois do R$.";}
+    else if(u.length>1){valor=Math.max(...u);conf="baixa";como="Achei mais de um valor com R$: sugeri o maior.";}}
+  if(!valor){const todos=linhas.filter(l=>!ruim.test(N(l))).flatMap(nums);if(todos.length){valor=Math.max(...todos);conf="baixa";como="Não achei a linha do total: sugeri o maior valor da nota.";}}
   let data="";const md=texto.match(/(\d{2})[\/.-](\d{2})[\/.-](\d{4}|\d{2})/);
   if(md){let a=md[3].length===2?"20"+md[3]:md[3];const iso=`${a}-${md[2]}-${md[1]}`;if(/^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/.test(iso))data=iso;}
   const mc=texto.match(/\d{2}\.?\d{3}\.?\d{3}\s?\/?\s?\d{4}\s?-?\s?\d{2}/);
@@ -154,7 +180,7 @@ function extrairNota(texto){
     const r=letras/Math.max(1,l.replace(/\s/g,"").length);return (r>.8?1:0)*(p.filter(w=>w.length>=3).length+(/LTDA|EIRELI|\bME\b|S\/?A\b|COMERCIO|COM\.|MATERIA|FERRAG|POSTO|AUTO|RESTAURANTE|HOTEL|MERCADO|SUPERMERCADO|FARMACIA|LOJA/i.test(l)?3:0));};
   const melhor=topo.filter(l=>!/CUPOM|DOCUMENTO|NFC|NOTA FISCAL|EXTRATO|CPF|IE[: ]|ENDERE|RUA|AV\.|AVENIDA|TEL|FONE|SAT/i.test(l)).map(l=>[nota_(l),l]).sort((a,b)=>b[0]-a[0])[0];
   const loja=melhor&&melhor[0]>=2?melhor[1].replace(/[^\wÀ-ú .&/-]/g,"").trim().slice(0,60):"";
-  return {valor,como,data,cnpj,loja};
+  return {valor,como,conf,data,cnpj,loja,letras:(texto.match(/[A-Za-z]/g)||[]).length};
 }
 async function receberFoto(file){
   if(!file)return;
@@ -162,22 +188,30 @@ async function receberFoto(file){
   const prog=(t,p)=>{$("n-etapa").textContent=t;$("n-barra").style.width=Math.round(p*100)+"%";};
   try{
     prog("Preparando a foto…",.02);
-    const {foto,leitura,mini}=await prepararImagem(file);notaFoto=foto;notaMini=mini;$("n-img").src=foto;
-    let texto="";try{texto=await lerTexto(leitura,prog);}catch(e){texto="";}
-    const r=extrairNota(texto);
+    const {foto,leitura,cinza,mini}=await prepararImagem(file);notaFoto=foto;notaMini=mini;$("n-img").src=foto;
+    // 1ª leitura; se não achar o total com segurança, tenta em preto e branco e com a foto girada
+    const ler=async b=>{try{const t=await lerTexto(b,prog);return {t,r:extrairNota(t)};}catch(e){return {t:"",r:extrairNota("")};}};
+    let L=await ler(leitura);const tent=[L];
+    if(L.r.conf!=="alta"){prog("Tentando ler de novo…",.5);const x=await ler(await pretoBranco(cinza));tent.push(x);if(x.r.conf==="alta")L=x;}
+    if(L.r.conf!=="alta"){
+      for(const gr of [90,270,180]){prog("Girando a foto…",.6);const x=await ler(await girar(cinza,gr));tent.push(x);if(x.r.conf==="alta"){L=x;break;}}}
+    if(L.r.conf!=="alta"){const sug=tent.filter(x=>x.r.valor).sort((a,b)=>b.r.letras-a.r.letras)[0];if(sug)L=sug;}
+    const texto=L.t,r=L.r;
     $("n-texto").textContent=texto||"(não consegui ler texto nesta foto)";
     // valor lido com segurança (linha do TOTAL): fica travado, o técnico só confirma.
     // Sem leitura: a foto vale como comprovante e o técnico digita o valor (a nota vai marcada como "valor digitado").
-    valorLido=r.valor&&!/Confira/.test(r.como)?r.valor:0;
-    const vi=$("n-valor");vi.readOnly=!!valorLido;vi.classList.toggle("travado",!!valorLido);vi.value=valorLido?valorTxt(valorLido):"";
+    // valor sugerido (leitura incerta): já vem preenchido, mas o técnico confere e pode corrigir
+    valorLido=r.valor&&r.conf==="alta"?r.valor:0;const sugerido=!valorLido&&r.valor?r.valor:0;
+    const vi=$("n-valor");vi.readOnly=!!valorLido;vi.classList.toggle("travado",!!valorLido);vi.value=valorLido?valorTxt(valorLido):sugerido?valorTxt(sugerido):"";
     vi.placeholder=valorLido?"":"0,00";
-    $("l-valor").firstChild.textContent=valorLido?"Valor lido da nota [R$]":"Valor total da nota [R$] (digite)";
-    $("n-data").value=r.data||hoje();$("n-cnpj").value=r.cnpj;$("n-loja").value=valorLido?r.loja:"";$("n-desc").value="";
+    $("l-valor").firstChild.textContent=valorLido?"Valor lido da nota [R$]":sugerido?"Valor total da nota [R$] (confira)":"Valor total da nota [R$] (digite)";
+    $("n-data").value=r.data||hoje();$("n-cnpj").value=r.cnpj;$("n-loja").value=valorLido||sugerido?r.loja:"";$("n-desc").value="";
     const a=$("n-achado");
     if(valorLido){a.className="achado ok";a.textContent=`Valor lido: ${brl(valorLido)}. Confira com a nota. Se não estiver certo, toque em "Tirar outra foto".`;}
-    else{a.className="achado atn";a.textContent=`Não consegui ler o valor desta nota. A foto fica registrada como comprovante: digite o valor total da nota${r.valor?` (o maior valor que encontrei foi ${brl(r.valor)})`:""}. Se preferir, tire outra foto mais de perto e com boa luz.`;}
+    else if(sugerido){a.className="achado atn";a.textContent=`Não achei a linha do total com certeza. Sugeri ${brl(sugerido)}: confira com a nota e corrija se precisar. A foto fica registrada como comprovante.`;}
+    else{a.className="achado atn";a.textContent=`Não consegui ler o valor desta nota. A foto fica registrada como comprovante: digite o valor total da nota. Se preferir, tire outra foto mais de perto e com boa luz.`;}
     $("n-lendo").hidden=true;$("n-form").hidden=false;$("n-msg").textContent="";
-    setTimeout(()=>(valorLido?$("n-desc"):vi).focus(),100);
+    setTimeout(()=>(valorLido||sugerido?$("n-desc"):vi).focus(),100);
   }catch(e){$("n-etapa").textContent="Não consegui abrir a foto. Tente de novo.";}
 }
 ["in-foto","in-galeria"].forEach(id=>$(id).addEventListener("change",e=>{const f=e.target.files[0];e.target.value="";receberFoto(f);}));
