@@ -36,12 +36,13 @@ const T = {
       "orcado", "realizado", "saldo", "lancado_em", "aprovado_em", "dados"],
     tit: ["Código interno", "Status (Histórico, Em campo, Enviado ou Aprovado)", "Origem", "Tipo da visita", "Pedido", "ID da obra", "Obra", "Início", "Fim", "Supervisor",
       "Orçado [R$]", "Realizado [R$]", "Saldo [R$]", "Lançado em", "Aprovado em", "Dados completos (não editar)"] },
-  func: { aba: "Colaboradores", cols: ["nome", "nome_agenda", "salario", "beneficios", "impostos", "ativo"],
-    tit: ["Nome", "Nome na Agenda Técnica (se for diferente)", "Salário [R$]", "Benefícios [R$]", "Impostos [R$]", "Ativo (Sim/Não)"] },
+  func: { aba: "Colaboradores", cols: ["nome", "nome_agenda", "salario", "beneficios", "impostos", "ativo", "alterado_em", "historico"],
+    tit: ["Nome", "Nome na Agenda Técnica (se for diferente)", "Salário [R$]", "Benefícios [R$]", "Impostos [R$]", "Ativo (Sim/Não)",
+      "Última alteração pelo painel", "Histórico de custo (data: salário + benefícios + impostos)"] },
   notas: { aba: "Notas", cols: ["id", "visita", "obra", "data", "valor", "descricao", "estabelecimento", "cnpj", "tecnico", "login", "enviada_em",
-      "recusada", "foto_id", "foto_link", "miniatura", "leitura"],
+      "recusada", "foto_id", "foto_link", "miniatura", "leitura", "digitado"],
     tit: ["Código da nota", "Código da visita", "Obra", "Data da nota", "Valor [R$]", "O que foi comprado", "Estabelecimento", "CNPJ", "Técnico", "Login do técnico",
-      "Enviada em", "Recusada pelo supervisor", "Foto (ID no Drive)", "Foto da nota", "Miniatura (não editar)", "Texto lido da nota"] },
+      "Enviada em", "Recusada pelo supervisor", "Foto (ID no Drive)", "Foto da nota", "Miniatura (não editar)", "Texto lido da nota", "Valor digitado pelo técnico (leitura falhou)"] },
   param: { aba: "Parâmetros", cols: ["chave", "valor", "descricao"], tit: ["Chave", "Valor", "Descrição"] }
 };
 
@@ -73,6 +74,8 @@ function aba_(t) {
     sh.getRange(1, 1, Math.max(sh.getMaxRows(), 2), def.cols.length).setNumberFormat("@");
     if (t === "visitas") { sh.hideColumns(1); sh.hideColumns(def.cols.length); }
     if (t === "notas") { sh.hideColumns(13); sh.hideColumns(15); sh.hideColumns(16); }
+  } else if (sh.getLastColumn() < def.cols.length) {   // coluna nova numa aba que já existia
+    sh.getRange(1, 1, 1, def.tit.length).setValues([def.tit]).setFontWeight("bold").setBackground("#002B49").setFontColor("#FFFFFF").setWrap(true);
   }
   return sh;
 }
@@ -136,7 +139,7 @@ function params_() { const p = {}; ler_("param").forEach(x => p[String(x.chave)]
 function nota_(n) {
   return { id: String(n.id), valor: r2_(n.valor), desc: String(n.descricao || ""), data: String(n.data || ""), loja: String(n.estabelecimento || ""),
     cnpj: String(n.cnpj || ""), tecnico: String(n.tecnico || ""), login: String(n.login || ""), enviadaEm: String(n.enviada_em || ""),
-    recusada: /^s/i.test(String(n.recusada || "")), mini: String(n.miniatura || ""), temFoto: !!String(n.foto_id || "") };
+    recusada: /^s/i.test(String(n.recusada || "")), digitado: /^s/i.test(String(n.digitado || "")), mini: String(n.miniatura || ""), temFoto: !!String(n.foto_id || "") };
 }
 function notasPorVisita_() {
   const m = {};
@@ -182,6 +185,8 @@ function acaoSupervisor_(b) {
       case "lancSalvar": return lancSalvar_(b.lancamento || {});
       case "lancExcluir": return lancExcluir_(String(b.id || ""));
       case "paramSalvar": return paramSalvar_(b.chave, b.valor);
+      case "funcListar": return { ok: true, lista: funcLista_() };
+      case "funcSalvar": return funcSalvar_(b.colaborador || {});
       case "backupAgora": garantirGatilhoBackup_(); return backupSemanal();
       case "notaFoto": return notaFoto_(String(b.id || ""), null);
     }
@@ -243,6 +248,31 @@ function paramSalvar_(chave, valor) {
   const lista = ler_("param"), x = lista.find(p => p.chave === chave);
   gravar_("param", { chave: chave, valor: String(r2_(valor)), descricao: x ? x.descricao : "" }, x ? x._linha : 0);
   return { ok: true };
+}
+
+/* ---------- colaboradores: o supervisor inclui, altera salário e desativa pelo painel ---------- */
+function funcLista_() {
+  return ler_("func").map(f => ({ nome: String(f.nome).trim(), agenda: String(f.nome_agenda || "").trim(), salario: r2_(f.salario), beneficios: r2_(f.beneficios),
+    impostos: r2_(f.impostos), ativo: !/^n/i.test(String(f.ativo || "")), alteradoEm: String(f.alterado_em || ""), historico: String(f.historico || "") }))
+    .sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"));
+}
+function funcSalvar_(c) {
+  const nome = limpa_(c.nome, 80).replace(/\s+/g, " "), orig = limpa_(c.original, 80);
+  if (!nome) return { ok: false, erro: "Informe o nome do colaborador." };
+  const sal = r2_(c.salario), ben = r2_(c.beneficios), imp = r2_(c.impostos);
+  if ([sal, ben, imp].some(x => !(x >= 0))) return { ok: false, erro: "Valores inválidos." };
+  if (!(sal > 0)) return { ok: false, erro: "Informe o salário." };
+  const lista = ler_("func"), chave = x => String(x).trim().toLowerCase();
+  const atual = orig ? lista.find(f => chave(f.nome) === chave(orig)) : null;
+  if (orig && !atual) return { ok: false, erro: "Colaborador não encontrado. Atualize a página." };
+  if (lista.some(f => f !== atual && chave(f.nome) === chave(nome))) return { ok: false, erro: "Já existe um colaborador com esse nome." };
+  const quando = agora_(), custo = x => r2_(num_(x.salario) + num_(x.beneficios) + num_(x.impostos));
+  let hist = atual ? String(atual.historico || "") : "";
+  if (!atual || custo(atual) !== r2_(sal + ben + imp))   // guarda cada mudança de custo
+    hist = (hist ? hist + " | " : "") + quando.slice(0, 10) + ": " + [sal, ben, imp].map(x => String(x).replace(".", ",")).join(" + ");
+  gravar_("func", { nome: nome, nome_agenda: limpa_(c.agenda, 80), salario: String(sal).replace(".", ","), beneficios: String(ben).replace(".", ","),
+    impostos: String(imp).replace(".", ","), ativo: c.ativo === false ? "Não" : "Sim", alterado_em: quando, historico: hist.slice(-2000) }, atual ? atual._linha : 0);
+  return { ok: true, lista: funcLista_(), funcionarios: funcs_() };
 }
 
 /* ---------- app de campo (técnico): só notas fiscais das visitas em que é o responsável ---------- */
@@ -314,7 +344,7 @@ function notaSalvar_(u, idVisita, n) {
   const mini = /^data:image\/jpeg;base64,/.test(String(n.mini || "")) && String(n.mini).length < 40000 ? String(n.mini) : "";
   gravar_("notas", { id: id, visita: idVisita, obra: limpa_(a.v.idObra + " - " + a.v.obra, 180), data: ehData_(n.data) ? n.data : Utilities.formatDate(new Date(), TZ, "yyyy-MM-dd"),
     valor: String(valor).replace(".", ","), descricao: desc, estabelecimento: limpa_(n.loja, 120), cnpj: limpa_(n.cnpj, 20), tecnico: u.nome, login: u.login,
-    enviada_em: agora_(), recusada: "", foto_id: fotoId, foto_link: link, miniatura: mini, leitura: limpa_(n.leitura, 1500) }, 0);
+    enviada_em: agora_(), recusada: "", foto_id: fotoId, foto_link: link, miniatura: mini, leitura: limpa_(n.leitura, 1500), digitado: n.digitado ? "Sim" : "" }, 0);
   atualizarTotais_(idVisita);
   return { ok: true, id: id };
 }

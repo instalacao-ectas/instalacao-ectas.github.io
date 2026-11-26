@@ -35,6 +35,7 @@
 .barra{height:8px;border-radius:999px;background:var(--chip);overflow:hidden}.barra i{display:block;height:100%;background:var(--accent);width:0;transition:width .3s}
 .valor-in{font-size:1.8rem!important;font-weight:800;text-align:right;font-variant-numeric:tabular-nums}
 .achado{font-size:.8rem;border-radius:8px;padding:8px 10px}
+.valor-in.travado{background:var(--ok-soft);color:var(--ok);font-weight:800;pointer-events:none}
 .achado.ok{background:var(--ok-soft);color:var(--ok)}.achado.atn{background:var(--atn-soft);color:var(--atn)}
 .linha2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 .voltar{font:inherit;font-weight:700;border:0;background:transparent;color:var(--accent);padding:0;cursor:pointer;align-self:flex-start}
@@ -100,7 +101,7 @@ details.txt-ocr pre{white-space:pre-wrap;font-size:.72rem;max-height:160px;overf
     <form class="card" id="n-form" hidden>
       <h2>Confira os dados da nota</h2>
       <div class="achado" id="n-achado"></div>
-      <label>Valor da nota [R$]<input id="n-valor" class="num valor-in" inputmode="decimal" autocomplete="off" required></label>
+      <label id="l-valor">Valor da nota [R$]<input id="n-valor" class="num valor-in" inputmode="decimal" autocomplete="off" required></label>
       <div class="linha2">
         <label>Data<input id="n-data" type="date" class="num"></label>
         <label>CNPJ<input id="n-cnpj" class="num" inputmode="numeric"></label>
@@ -120,6 +121,6 @@ details.txt-ocr pre{white-space:pre-wrap;font-size:.72rem;max-height:160px;overf
 <script src="../config.js?v=8"></script>
 <script src="config.js?v=2"></script>
 <script src="lib/tesseract.min.js"></script>
-<script src="campo.js?v=2" defer></script>
+<script src="campo.js?v=3" defer></script>
 </body>
 </html>

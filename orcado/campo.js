@@ -20,7 +20,7 @@ const valorNum=s=>{s=String(s||"").replace(/[^\d,.-]/g,"");if(s.includes(","))s=
 const valorTxt=n=>n?n.toLocaleString("pt-BR",{minimumFractionDigits:2,maximumFractionDigits:2}):"";
 
 /* ---------- estado ---------- */
-let eu=null, VIS=[], atual=null, notaFoto=null, notaMini=null;
+let eu=null, VIS=[], atual=null, notaFoto=null, notaMini=null, valorLido=0;
 
 /* ---------- dados: prévia (no aparelho) ou central ---------- */
 const TEC_PREVIA=[["leonardo","Leonardo Santos da Costa"],["marcelo","Marcelo de Sousa Ferreira"],["gleobi","Gleobi Luiz Borges"],["alison","Alison da Silva"],["rodrigo","Rodrigo Oliveira de Oliveira"]];
@@ -79,7 +79,7 @@ function abrirVisita(id){
    ${aberta?"":'<span class="pill p-atn">Encerrada pelo supervisor: não recebe mais notas</span>'}`;
   $("b-foto").hidden=!aberta;document.querySelector('label[for="in-galeria"]').hidden=!aberta;
   const N=$("notas");const ns=(atual.notas||[]).slice().reverse();
-  N.innerHTML=ns.length?ns.map(n=>`<div class="nota"><img src="${esc(n.mini||n.foto||"")}" alt="Nota"><div class="d">${esc(n.desc)}<small>${fmt(n.data)}${n.loja?" · "+esc(n.loja):""}</small>${n.recusada?'<span class="pill p-ruim">recusada pelo supervisor</span>':""}</div><div class="v">${brl(n.valor)}${aberta&&!n.recusada?`<br><button type="button" class="linkbtn" data-del="${esc(n.id)}" style="font-size:.74rem">excluir</button>`:""}</div></div>`).join(""):`<p class="status" style="margin:0">Nenhuma nota ainda. Toque em "Fotografar nota fiscal".</p>`;
+  N.innerHTML=ns.length?ns.map(n=>`<div class="nota"><img src="${esc(n.mini||n.foto||"")}" alt="Nota"><div class="d">${esc(n.desc)}<small>${fmt(n.data)}${n.loja?" · "+esc(n.loja):""}</small>${n.digitado?'<span class="pill p-atn">valor digitado</span> ':""}${n.recusada?'<span class="pill p-ruim">recusada pelo supervisor</span>':""}</div><div class="v">${brl(n.valor)}${aberta&&!n.recusada?`<br><button type="button" class="linkbtn" data-del="${esc(n.id)}" style="font-size:.74rem">excluir</button>`:""}</div></div>`).join(""):`<p class="status" style="margin:0">Nenhuma nota ainda. Toque em "Fotografar nota fiscal".</p>`;
   N.querySelectorAll("[data-del]").forEach(b=>b.onclick=async()=>{if(b.dataset.c){try{await excluirNota(b.dataset.del);await carregar();abrirVisita(atual.id);toast("Nota excluída");}catch(e){toast(e.message);}}else{b.dataset.c=1;b.textContent="toque de novo";setTimeout(()=>{b.textContent="excluir";delete b.dataset.c;},3000);}});
   mostra("v-visita");
 }
@@ -151,23 +151,28 @@ async function receberFoto(file){
     let texto="";try{texto=await lerTexto(leitura,prog);}catch(e){texto="";}
     const r=extrairNota(texto);
     $("n-texto").textContent=texto||"(não consegui ler texto nesta foto)";
-    $("n-valor").value=valorTxt(r.valor);$("n-data").value=r.data||hoje();$("n-cnpj").value=r.cnpj;$("n-loja").value=r.loja;$("n-desc").value="";
+    // valor lido com segurança (linha do TOTAL): fica travado, o técnico só confirma.
+    // Sem leitura: a foto vale como comprovante e o técnico digita o valor (a nota vai marcada como "valor digitado").
+    valorLido=r.valor&&!/Confira/.test(r.como)?r.valor:0;
+    const vi=$("n-valor");vi.readOnly=!!valorLido;vi.classList.toggle("travado",!!valorLido);vi.value=valorLido?valorTxt(valorLido):"";
+    vi.placeholder=valorLido?"":"0,00";
+    $("l-valor").firstChild.textContent=valorLido?"Valor lido da nota [R$]":"Valor total da nota [R$] (digite)";
+    $("n-data").value=r.data||hoje();$("n-cnpj").value=r.cnpj;$("n-loja").value=valorLido?r.loja:"";$("n-desc").value="";
     const a=$("n-achado");
-    if(r.valor&&!/Confira/.test(r.como)){a.className="achado ok";a.textContent=`Valor lido: ${brl(r.valor)}. ${r.como} Confira com a nota antes de enviar.`;}
-    else if(r.valor){a.className="achado atn";a.textContent=r.como;}
-    else{a.className="achado atn";a.textContent="Não consegui ler o valor. Digite o valor total da nota.";}
+    if(valorLido){a.className="achado ok";a.textContent=`Valor lido: ${brl(valorLido)}. Confira com a nota. Se não estiver certo, toque em "Tirar outra foto".`;}
+    else{a.className="achado atn";a.textContent=`Não consegui ler o valor desta nota. A foto fica registrada como comprovante: digite o valor total da nota${r.valor?` (o maior valor que encontrei foi ${brl(r.valor)})`:""}. Se preferir, tire outra foto mais de perto e com boa luz.`;}
     $("n-lendo").hidden=true;$("n-form").hidden=false;$("n-msg").textContent="";
-    setTimeout(()=>(r.valor?$("n-desc"):$("n-valor")).focus(),100);
+    setTimeout(()=>(valorLido?$("n-desc"):vi).focus(),100);
   }catch(e){$("n-etapa").textContent="Não consegui abrir a foto. Tente de novo.";}
 }
 ["in-foto","in-galeria"].forEach(id=>$(id).addEventListener("change",e=>{const f=e.target.files[0];e.target.value="";receberFoto(f);}));
 $("n-form").addEventListener("submit",async e=>{
   e.preventDefault();
-  const valor=valorNum($("n-valor").value),desc=$("n-desc").value.trim();
+  const valor=valorLido||valorNum($("n-valor").value),desc=$("n-desc").value.trim();
   if(!(valor>0)){$("n-msg").textContent="Informe o valor da nota.";$("n-msg").className="msg err";return;}
   if(!desc){$("n-msg").textContent="Diga o que foi comprado.";$("n-msg").className="msg err";return;}
   const n={id:"N"+Date.now().toString(36),valor,desc,data:$("n-data").value||hoje(),cnpj:$("n-cnpj").value.trim(),loja:$("n-loja").value.trim(),
-    foto:notaFoto,mini:notaMini,tecnico:eu.nome,login:eu.login,enviadaEm:new Date().toISOString(),leitura:$("n-texto").textContent.slice(0,1500)};
+    foto:notaFoto,mini:notaMini,digitado:!valorLido,tecnico:eu.nome,login:eu.login,enviadaEm:new Date().toISOString(),leitura:$("n-texto").textContent.slice(0,1500)};
   $("b-confirmar").disabled=true;$("n-msg").textContent="Enviando…";$("n-msg").className="msg";
   try{await salvarNota(n);await carregar();abrirVisita(atual.id);toast(`Nota de ${brl(valor)} enviada para a obra.`);}
   catch(err){$("n-msg").textContent=err.message||"Não consegui enviar. Tente de novo.";$("n-msg").className="msg err";}

@@ -92,6 +92,13 @@ thead th{position:sticky;top:0;background:var(--surface);z-index:1}
 .t-orc td{vertical-align:middle}.t-orc td[data-r]{color:var(--ok);font-weight:700}.t-orc td[data-r].neg{color:var(--ruim)}.t-orc td[data-r].zero{color:var(--muted);font-weight:500}
 .t-orc tfoot td{font-weight:800;border-top:2px solid var(--line)}
 .t-orc .ir{font:inherit;font-size:.78rem;border:0;background:none;color:var(--accent);text-decoration:underline;cursor:pointer;padding:0;text-align:left}
+.g-form{display:flex;flex-direction:column;gap:10px;border:1px solid var(--accent);border-radius:10px;padding:12px;margin:10px 0;background:var(--surface)}
+.g-form .campos{grid-template-columns:repeat(auto-fit,minmax(150px,1fr))}
+.g-form .g-calc{font-size:.85rem;background:var(--chip);border-radius:8px;padding:8px 12px}
+.g-form .chk{display:flex;flex-direction:row;gap:8px;align-items:center;font-size:.85rem}.g-form .chk input{width:auto;flex:none;margin:0}
+.g-form .g-hist{font-size:.75rem;color:var(--muted)}
+#g-func tr.inativo td{opacity:.5}
+#g-func .ed{font:inherit;font-size:.78rem;border:0;background:none;color:var(--accent);text-decoration:underline;cursor:pointer;padding:0}
 .cmp{display:flex;flex-wrap:wrap;gap:6px 16px;font-size:.8rem;background:var(--chip);border-radius:8px;padding:8px 12px}
 .cmp b{font-variant-numeric:tabular-nums}.cmp .neg{color:var(--ruim)}.cmp .pos{color:var(--ok)}
 .etapa{display:none}.etapa.on{display:flex;flex-direction:column;gap:12px}
@@ -307,10 +314,11 @@ thead th{position:sticky;top:0;background:var(--surface);z-index:1}
     <!-- REGRAS -->
     <section id="a-regras" hidden style="display:flex;flex-direction:column;gap:14px">
       <div class="grid2">
-        <section class="card">
-          <h2>Custo por colaborador</h2>
-          <p class="dica">Valor hora = custo mensal ÷ 176 h · valor dia = custo mensal ÷ 21 dias. Salário, benefícios e impostos ficam só na central.</p>
-          <div class="tabela"><table><thead><tr><th>Colaborador</th><th>Nome na Agenda</th><th class="n">Valor hora</th><th class="n">Valor dia</th></tr></thead><tbody id="g-func"></tbody></table></div>
+        <section class="card" style="grid-column:1/-1">
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap"><h2 style="margin:0">Custo por colaborador</h2><button type="button" class="btn sec" id="g-novo">+ Novo colaborador</button></div>
+          <p class="dica">Custo mensal = salário + benefícios + impostos. Valor hora = custo ÷ 176 h · valor dia = custo ÷ 21 dias. Uma mudança de salário vale para os <b>próximos lançamentos</b>; as visitas já lançadas mantêm o custo da época.</p>
+          <form id="g-form" class="g-form" hidden></form>
+          <div class="tabela"><table><thead><tr><th>Colaborador</th><th>Nome na Agenda</th><th class="n">Custo mensal</th><th class="n">Valor hora</th><th class="n">Valor dia</th><th></th></tr></thead><tbody id="g-func"></tbody></table></div>
         </section>
         <div style="display:flex;flex-direction:column;gap:14px">
           <section class="card">
@@ -336,6 +344,6 @@ thead th{position:sticky;top:0;background:var(--surface);z-index:1}
 <script src="config.js?v=8"></script>
 <script src="agenda/config.js?v=3"></script>
 <script src="orcado/config.js?v=2"></script>
-<script src="orcado/orcado.js?v=11" defer></script>
+<script src="orcado/orcado.js?v=12" defer></script>
 </body>
 </html>

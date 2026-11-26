@@ -304,14 +304,67 @@ $("modal").addEventListener("click",e=>{if(e.target.id==="modal")fechar();});
 document.addEventListener("keydown",e=>{if(e.key==="Escape"&&!$("modal").hidden)fechar();});
 
 /* ---------- REGRAS ---------- */
+// cadastro completo (com salário), carregado só quando a aba é aberta
+let FCAD=null,fEd=null;
+const custoF=f=>(f.salario||0)+(f.beneficios||0)+(f.impostos||0);
+const r2=n=>Math.round(n*100)/100;
+function cadPrevia(){return FUNC.map(f=>({nome:f.nome,agenda:f.agenda||"",salario:r2((f.vHora||0)*176),beneficios:0,impostos:0,ativo:true,alteradoEm:"",historico:""}));}
+async function carregarCad(){
+  if(PREVIA){FCAD=cadPrevia();return;}
+  try{FCAD=(await enviar(CC,{painel:true,acao:"funcListar"})).lista||[];}catch(err){toast(err.message||"Não consegui carregar os colaboradores");}
+}
 function renderRegras(){
-  const nomesAg=[...new Set(AGENDA.map(l=>l.func))];
-  $("g-func").innerHTML=FUNC.map(f=>{const a=nomesAg.filter(n=>{const x=funcDaAgenda(n);return x&&x.nome===f.nome;});return `<tr><td>${esc(f.nome)}</td><td>${a.length?esc(a.join(", ")):'<span class="status">não encontrado</span>'}</td><td class="n">${brl(f.vHora)}</td><td class="n">${brl(f.vDia)}</td></tr>`;}).join("");
-  const sem=nomesAg.filter(n=>!funcDaAgenda(n));
-  if(sem.length)$("g-func").insertAdjacentHTML("beforeend",`<tr><td colspan="4" class="quebra"><span class="pill p-atn">Sem custo cadastrado</span> ${esc(sem.join(", "))} (nomes da Agenda sem valor hora/dia)</td></tr>`);
+  if(!FCAD){$("g-func").innerHTML=`<tr><td colspan="6" class="status">Carregando colaboradores…</td></tr>`;carregarCad().then(()=>{if(FCAD)renderRegras();});}
+  else{
+    const nomesAg=[...new Set(AGENDA.map(l=>l.func))];
+    $("g-func").innerHTML=FCAD.map(f=>{const c=custoF(f),a=nomesAg.filter(n=>{const x=funcDaAgenda(n);return x&&x.nome===f.nome;});
+      return `<tr class="${f.ativo?"":"inativo"}"><td class="quebra">${esc(f.nome)}${f.ativo?"":' <span class="pill p-neu">inativo</span>'}</td><td class="quebra">${f.agenda?esc(f.agenda):a.length?esc(a.join(", ")):'<span class="status">não encontrado</span>'}</td><td class="n">${brl(c)}</td><td class="n">${brl(c/176)}</td><td class="n">${brl(c/21)}</td><td><button type="button" class="ed" data-fe="${esc(f.nome)}">Editar</button></td></tr>`;}).join("");
+    const sem=nomesAg.filter(n=>!funcDaAgenda(n));
+    if(sem.length)$("g-func").insertAdjacentHTML("beforeend",`<tr><td colspan="6" class="quebra"><span class="pill p-atn">Sem custo cadastrado</span> ${esc(sem.join(", "))} (nomes da Agenda sem valor hora/dia: use + Novo colaborador)</td></tr>`);
+    $("g-func").querySelectorAll("[data-fe]").forEach(b=>b.onclick=()=>abrirFunc(FCAD.find(f=>f.nome===b.dataset.fe)));
+  }
   $("g-conc").innerHTML=CONCEITO.map(r=>`<tr>${r.map(x=>`<td>${esc(x)}</td>`).join("")}</tr>`).join("");
   $("g-carro").value=carroDia;
 }
+$("g-novo").onclick=()=>{if(FCAD)abrirFunc(null);};
+function abrirFunc(f){
+  fEd=f;const g=$("g-form"),v=f||{nome:"",agenda:"",salario:"",beneficios:"",impostos:"",ativo:true};
+  const semCusto=[...new Set(AGENDA.map(l=>l.func))].filter(n=>!funcDaAgenda(n));
+  g.innerHTML=`<b>${f?"Editar "+esc(f.nome):"Novo colaborador"}</b>
+    <div class="campos">
+      <label class="full">Nome completo *<input id="gf-nome" value="${esc(v.nome)}" required maxlength="80"></label>
+      <label class="full">Nome na Agenda Técnica (se for diferente)<input id="gf-agenda" value="${esc(v.agenda)}" list="gf-ag" maxlength="80"><datalist id="gf-ag">${semCusto.map(n=>`<option value="${esc(n)}">`).join("")}</datalist></label>
+      <label>Salário [R$] *<input id="gf-sal" type="number" step="0.01" min="0" class="num" value="${v.salario}" required></label>
+      <label>Benefícios [R$]<input id="gf-ben" type="number" step="0.01" min="0" class="num" value="${v.beneficios}"></label>
+      <label>Impostos [R$]<input id="gf-imp" type="number" step="0.01" min="0" class="num" value="${v.impostos}"></label>
+    </div>
+    <label class="chk"><input type="checkbox" id="gf-ativo" ${v.ativo?"checked":""}> Ativo (desmarque quem saiu da empresa: some das listas, mas o histórico continua)</label>
+    <div class="g-calc" id="gf-calc"></div>
+    ${f&&f.historico?`<div class="g-hist">Histórico de custo: ${esc(f.historico)}</div>`:""}
+    <div style="display:flex;gap:8px;justify-content:flex-end"><button type="button" class="btn sec" id="gf-canc">Cancelar</button><button type="submit" class="btn pri" id="gf-ok">Salvar</button></div>`;
+  g.hidden=false;
+  const calcF=()=>{const c=num($("gf-sal").value)+num($("gf-ben").value)+num($("gf-imp").value),antes=f?custoF(f):0;
+    $("gf-calc").innerHTML=`Custo mensal <b>${brl(c)}</b> · valor hora <b>${brl(c/176)}</b> · valor dia <b>${brl(c/21)}</b>`+(f&&Math.abs(c-antes)>.004?`<br><span class="${c>antes?"neg":"pos"}">Antes: ${brl(antes)} → agora ${brl(c)} (${antes?pct((c-antes)/antes*100):"novo"}). Vale para os próximos lançamentos.</span>`:"");};
+  g.querySelectorAll("input").forEach(i=>i.addEventListener("input",calcF));calcF();
+  $("gf-canc").onclick=()=>{g.hidden=true;g.innerHTML="";fEd=null;};
+  g.scrollIntoView({behavior:"smooth",block:"nearest"});$("gf-nome").focus();
+}
+$("g-form").addEventListener("submit",async e=>{
+  e.preventDefault();
+  const c={original:fEd?fEd.nome:"",nome:$("gf-nome").value.trim().replace(/\s+/g," "),agenda:$("gf-agenda").value.trim(),
+    salario:num($("gf-sal").value),beneficios:num($("gf-ben").value),impostos:num($("gf-imp").value),ativo:$("gf-ativo").checked};
+  if(!c.nome||!(c.salario>0)){toast("Informe o nome e o salário");return;}
+  if(FCAD.some(f=>f!==fEd&&norm(f.nome)===norm(c.nome))){toast("Já existe um colaborador com esse nome");return;}
+  const b=$("gf-ok");b.disabled=true;
+  try{
+    if(PREVIA){const x={...c,alteradoEm:"prévia",historico:fEd?fEd.historico:""};delete x.original;
+      if(fEd)FCAD[FCAD.indexOf(fEd)]=x;else FCAD.push(x);FCAD.sort((a,b)=>a.nome.localeCompare(b.nome));
+      FUNC=FCAD.filter(f=>f.ativo).map(f=>({nome:f.nome,agenda:f.agenda,vHora:r2(custoF(f)/176),vDia:r2(custoF(f)/21)}));}
+    else{const j=await enviar(CC,{painel:true,acao:"funcSalvar",colaborador:c});FCAD=j.lista||FCAD;FUNC=(j.funcionarios||FUNC).slice().sort((a,b)=>a.nome.localeCompare(b.nome));}
+    $("g-form").hidden=true;$("g-form").innerHTML="";fEd=null;renderRegras();
+    toast(PREVIA?`${c.nome} salvo (só nesta prévia)`:`${c.nome} salvo`);
+  }catch(err){toast(err.message||"Não foi possível gravar");}finally{b.disabled=false;}
+});
 $("g-carro").addEventListener("change",async e=>{carroDia=num(e.target.value);if(PREVIA){toast("Diária alterada só nesta prévia");return;}
   try{await enviar(CC,{painel:true,acao:"paramSalvar",chave:"carro_dia",valor:carroDia});toast("Diária do carro atualizada");}catch(err){toast(err.message||"Não foi possível gravar");}});
 
