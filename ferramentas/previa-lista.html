@@ -39,6 +39,9 @@
 .fotoslot img{width:100%;height:100%;object-fit:cover}
 .kittabs .semf{color:#B54708;font-weight:700}.kittabs button[aria-pressed="true"] .semf{color:#FFE2B8}
 .btn[disabled]{opacity:.5;cursor:not-allowed}
+.numgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:6px}
+.numgrid input{font:600 14px var(--mono,monospace);text-transform:uppercase}
+.numgrid input::placeholder{text-transform:none;font-family:var(--font);font-weight:400}
 [hidden]{display:none!important}
 </style>
 </head>
@@ -70,11 +73,19 @@ const CATALOGO=["Alicate Bico 6 polegadas","Alicate Corte Diagonal 6 polegadas",
 // dados de exemplo
 const S={passo:0,kitSel:0,etiquetas:"aproveitar",
   kits:[
-    {nome:"Kit Elétrica – Equipe 1",resp:"",local:"Montagem elétrica",itens:[["Alicate Universal 8 polegadas",2,"qr",""],["Alicate Corte Diagonal 6 polegadas",2,"qr",""],["Múltimetro MDV 0610",1,"qr",""],["Chave Phillips Isolada P",1,"qr",""],["Caneta permanente",2,"cont",""]]},
+    {nome:"Kit Elétrica – Equipe 1",resp:"",local:"Montagem elétrica",itens:[["Alicate Universal 8 polegadas",2,"qr","",["ELE-001","ELE-002"]],["Alicate Corte Diagonal 6 polegadas",2,"qr",""],["Múltimetro MDV 0610",1,"qr",""],["Chave Phillips Isolada P",1,"qr",""],["Caneta permanente",2,"cont",""]]},
     {nome:"Kit Mecânica – Equipe 2",resp:"",local:"Montagem mecânica",itens:[["Chave Grifo 14 polegadas",1,"qr",""],["Jogo da Chaves Combinada 6 a 32mm",1,"qr",""],["Furadeira Bateria 18 V",1,"qr",""],["Bateria Furadeira e Parafusadeira",2,"qr",""]]},
     {nome:"Kit Partida de ETE",resp:"",local:"Start-up / comissionamento",itens:[]}
   ]};
-const PASSOS=["Kits","Ferramentas de cada kit","Etiquetas","Revisar e publicar"];
+const PASSOS=["Kits","Ferramentas de cada kit","Números de controle e etiquetas","Revisar e publicar"];
+// nº de controle de cada unidade (definido pelo supervisor): item[4] = lista com um número por unidade
+const nums=i=>{if(i[2]!=="qr")return [];const q=Math.max(1,+i[1]||1);i[4]=(i[4]||[]).slice(0,q);while(i[4].length<q)i[4].push("");return i[4];};
+const normN=v=>String(v||"").toUpperCase().replace(/\s+/g,"");
+function problemasNum(){const vistos={},rep=new Set();let vazios=0;
+  S.kits.forEach(k=>k.itens.forEach(i=>nums(i).forEach(v=>{const n=normN(v);if(!n){vazios++;return;}if(vistos[n])rep.add(v.trim());vistos[n]=1;})));
+  return {vazios,rep:[...rep]};}
+// "Preencher sequência": continua a partir do primeiro número (ex.: ELE-001 → ELE-002)
+function proximo(v,passo){const m=String(v).match(/^(.*?)(\d+)(\D*)$/);if(!m)return "";const n=String(+m[2]+passo).padStart(m[2].length,"0");return m[1]+n+m[3];}
 const pecas=k=>k.itens.filter(i=>i[2]==="qr").reduce((s,i)=>s+(+i[1]||0),0);
 const totalPecas=()=>S.kits.reduce((s,k)=>s+pecas(k),0);
 
@@ -114,6 +125,8 @@ function pItens(){const k=S.kits[S.kitSel]||S.kits[0];
       <label class="field">Ferramenta<input list="cat" data-c="0" value="${esc(it[0])}" placeholder="Digite o nome"></label>
       <div class="row" style="gap:8px"><label class="field" style="flex:0 0 84px">Qtd<input type="number" min="1" data-c="1" value="${it[1]}"></label>
        <label class="field" style="flex:1"><span>Controle</span><select data-c="2"><option value="qr" ${it[2]==="qr"?"selected":""}>Etiqueta QR</option><option value="cont" ${it[2]==="cont"?"selected":""}>Só contagem</option></select></label></div>
+      ${it[2]==="qr"?`<div class="field"><span>Nº de controle da etiqueta ${nums(it).length>1?`(um por unidade)`:""}</span><div class="numgrid">${nums(it).map((v,u)=>`<input data-num="${u}" value="${esc(v)}" placeholder="${u===0?"Ex.: ELE-001":"Nº da unidade "+(u+1)}" autocomplete="off" autocapitalize="characters">`).join("")}</div>
+        <div class="row" style="gap:6px">${nums(it).length>1?`<button type="button" class="btn small" data-seq>Preencher sequência</button>`:""}<button type="button" class="btn small" data-lerqr>📷 Ler etiqueta colada</button></div></div>`:""}
       <div class="row"><span class="mini">${it[3]?"✓ Foto ok":"⚠ Falta a foto"}</span><span class="spacer"></span><button type="button" class="btn small" data-rm="${j}">Remover</button></div>
      </div></div>`).join("")||`<p class="mini">Nenhum item ainda. Clique em "+ Adicionar ferramenta".</p>`}</div>
   <div class="row"><button type="button" class="btn primary" id="iAdd">📷 + Adicionar ferramenta</button>${S.kits.length>1?`<select id="iCopia" style="max-width:260px"><option value="">Copiar os itens de outro kit…</option>${S.kits.map((x,i)=>i!==S.kitSel?`<option value="${i}">${esc(x.nome)}</option>`:"").join("")}</select>`:""}<span class="spacer"></span><span class="mini"><b>${k.itens.length}</b> itens · <b>${pecas(k)}</b> peças com etiqueta · <b>${k.itens.length-semFoto(k)}/${k.itens.length}</b> com foto</span></div></div>`;}
@@ -127,35 +140,42 @@ function aItens(){const k=S.kits[S.kitSel];
   $("fotoIn").onchange=async e=>{const f=e.target.files[0];if(!f||fotoAlvo==null)return;try{k.itens[fotoAlvo][3]=await encolher(f);}catch(err){toast("Não consegui usar a foto.");}const j=fotoAlvo;fotoAlvo=null;render();const i=document.querySelector(`[data-j="${j}"] [data-c="0"]`);if(i&&!i.value)i.focus();};
   document.querySelectorAll("[data-j] [data-c]").forEach(i=>i.onchange=i.oninput=()=>{const j=+i.closest("[data-j]").dataset.j,c=+i.dataset.c;k.itens[j][c]=c===1?Math.max(1,+i.value||1):i.value;});
   document.querySelectorAll("[data-rm]").forEach(b=>b.onclick=()=>{k.itens.splice(+b.dataset.rm,1);render();});
-  const cp=$("iCopia");if(cp)cp.onchange=()=>{if(cp.value==="")return;k.itens=k.itens.concat(S.kits[+cp.value].itens.map(x=>[x[0],x[1],x[2],""]));toast("Itens copiados. Tire a foto de cada um e ajuste as quantidades.");render();};
+  document.querySelectorAll("[data-j] [data-num]").forEach(i=>i.oninput=()=>{const it=k.itens[+i.closest("[data-j]").dataset.j];nums(it)[+i.dataset.num]=i.value.trim();});
+  document.querySelectorAll("[data-j] [data-c='1'],[data-j] [data-c='2']").forEach(i=>i.addEventListener("change",()=>render()));
+  document.querySelectorAll("[data-seq]").forEach(b=>b.onclick=()=>{const it=k.itens[+b.closest("[data-j]").dataset.j],ns=nums(it);
+    if(!ns[0])return toast("Digite o número da primeira unidade (ex.: ELE-001).");for(let u=1;u<ns.length;u++)ns[u]=proximo(ns[0],u);render();});
+  document.querySelectorAll("[data-lerqr]").forEach(b=>b.onclick=()=>toast("Na versão final: abre a câmera, lê a etiqueta já colada na peça e preenche o número."));
+  const cp=$("iCopia");if(cp)cp.onchange=()=>{if(cp.value==="")return;k.itens=k.itens.concat(S.kits[+cp.value].itens.map(x=>[x[0],x[1],x[2],"",[]]));toast("Itens copiados. Tire a foto, ajuste as quantidades e defina os números de controle.");render();};
 }
 
-/* 3. etiquetas */
-function pEtiquetas(){const n=totalPecas();let c=187;
-  return `<div class="card stack"><h3>3. Etiquetas</h3>
-  <p class="mini" style="margin:0">A lista nova tem <b>${n}</b> peças com etiqueta. Como as peças vão receber o código?</p>
-  <label class="opcao"><input type="radio" name="et" value="aproveitar" ${S.etiquetas==="aproveitar"?"checked":""}><div><b>Aproveitar as etiquetas já coladas</b> (recomendado)<br><span class="mini">No celular, o supervisor lê a etiqueta QR que já está na peça, diz a qual item do kit ela pertence e pode tirar a foto da peça na mesma hora. Peças sem etiqueta (ou com etiqueta estragada) ganham um código novo e uma etiqueta para imprimir.</span></div></label>
-  <label class="opcao"><input type="radio" name="et" value="novas" ${S.etiquetas==="novas"?"checked":""}><div><b>Etiquetas novas para todas as peças</b><br><span class="mini">Gera códigos novos a partir de FER-0187 (os números antigos não são reaproveitados, para não confundir) e um PDF para imprimir. As etiquetas antigas precisam ser retiradas.</span></div></label>
-  <div class="stack" style="gap:6px"><b class="mini">${S.etiquetas==="novas"?"Códigos que seriam gerados":"Exemplo de peças que ganhariam código novo"}</b>
-  ${S.kits.map(k=>{const cods=[];k.itens.filter(i=>i[2]==="qr").forEach(i=>{for(let q=0;q<(+i[1]||0);q++)cods.push(`FER-${String(c++).padStart(4,"0")}`);});
-    return cods.length?`<div><span class="mini"><b>${esc(k.nome)}</b> · ${cods.length} peças</span><div class="codes">${(S.etiquetas==="novas"?cods:cods.slice(0,2)).map(x=>`<code>${x}</code>`).join("")}${S.etiquetas==="novas"?"":`<span class="mini">… só as que não tiverem etiqueta</span>`}</div></div>`:"";}).join("")}</div>
-  <div class="row"><button type="button" class="btn" disabled>Baixar PDF das etiquetas (na versão final)</button></div></div>`;}
-function aEtiquetas(){document.querySelectorAll("input[name=et]").forEach(r=>r.onchange=()=>{S.etiquetas=r.value;render();});}
+/* 3. números de controle e etiquetas */
+function pEtiquetas(){const pr=problemasNum(),n=totalPecas();
+  return `<div class="card stack"><h3>3. Números de controle e etiquetas</h3>
+  <p class="mini" style="margin:0">O <b>número de controle</b> de cada peça é definido pelo supervisor (na etapa 2 ou aqui). É esse número que sai na etiqueta QR e que o técnico lê na conferência. Pode seguir o padrão de vocês, por exemplo por atividade (ELE-001, MEC-001) ou pelo nº de patrimônio. O mesmo número não pode estar em duas peças.</p>
+  <div class="resumo"><div><span>Peças com etiqueta</span><b>${n}</b></div><div><span>Com número</span><b>${n-pr.vazios}</b></div><div><span>Sem número</span><b style="color:${pr.vazios?"#B54708":"inherit"}">${pr.vazios}</b></div><div><span>Repetidos</span><b style="color:${pr.rep.length?"#C4320A":"inherit"}">${pr.rep.length}</b></div></div>
+  ${pr.rep.length?`<div class="banner">Número repetido: ${pr.rep.map(esc).join(", ")}. Cada peça precisa de um número só dela.</div>`:""}
+  <div class="tablebox"><table><thead><tr><th>Kit</th><th>Ferramenta</th><th>Unidade</th><th style="width:220px">Nº de controle</th></tr></thead><tbody>
+  ${S.kits.map((k,ki)=>k.itens.map((it,j)=>nums(it).map((v,u)=>`<tr><td>${esc(k.nome)}</td><td>${esc(it[0]||"—")}</td><td>${u+1} de ${nums(it).length}</td><td><input data-t="${ki}.${j}.${u}" value="${esc(v)}" placeholder="Definir número" autocapitalize="characters" autocomplete="off" style="${v?"":"border-color:#D08A1E"}"></td></tr>`).join("")).join("")).join("")||`<tr><td colspan="4" class="mini">Nenhuma peça com etiqueta ainda.</td></tr>`}
+  </tbody></table></div>
+  <div class="row"><button type="button" class="btn" disabled>Baixar PDF das etiquetas com estes números (na versão final)</button><span class="spacer"></span><span class="mini">Peças que já têm etiqueta colada podem ter o número lido com a câmera (📷 na etapa 2).</span></div></div>`;}
+function aEtiquetas(){document.querySelectorAll("[data-t]").forEach(i=>i.onchange=()=>{const [ki,j,u]=i.dataset.t.split(".").map(Number);nums(S.kits[ki].itens[j])[u]=i.value.trim();render();});}
 
 /* 4. revisar e publicar */
 function pPublicar(){const itens=S.kits.reduce((s,k)=>s+k.itens.length,0),vazios=S.kits.filter(k=>!k.itens.length);
   return `<div class="card stack"><h3>4. Revisar e publicar</h3>
-  <div class="resumo"><div><span>Kits</span><b>${S.kits.length}</b></div><div><span>Itens</span><b>${itens}</b></div><div><span>Peças com etiqueta</span><b>${totalPecas()}</b></div><div><span>Itens com foto</span><b>${itens-totalSemFoto()}/${itens}</b></div><div><span>Etiquetas</span><b style="font-size:15px">${S.etiquetas==="novas"?"Todas novas":"Aproveitar as coladas"}</b></div></div>
+  <div class="resumo"><div><span>Kits</span><b>${S.kits.length}</b></div><div><span>Itens</span><b>${itens}</b></div><div><span>Peças com etiqueta</span><b>${totalPecas()}</b></div><div><span>Itens com foto</span><b>${itens-totalSemFoto()}/${itens}</b></div><div><span>Nº de controle</span><b style="font-size:15px">${problemasNum().vazios?problemasNum().vazios+" sem número":"Todos definidos"}</b></div></div>
   ${totalSemFoto()?`<div class="banner">📷 Faltam fotos em <b>${totalSemFoto()}</b> item(ns): ${S.kits.filter(semFoto).map(k=>esc(k.nome)+" ("+semFoto(k)+")").join(", ")}. A lista só pode ser publicada com a foto de todos os itens.</div>`:""}
+  ${problemasNum().vazios||problemasNum().rep.length?`<div class="banner">🏷 Faltam números de controle em <b>${problemasNum().vazios}</b> peça(s)${problemasNum().rep.length?` e há números repetidos (${problemasNum().rep.map(esc).join(", ")})`:""}. Defina na etapa 3.</div>`:""}
   ${vazios.length?`<div class="banner">⚠ ${vazios.map(k=>esc(k.nome)).join(", ")} ${vazios.length>1?"estão":"está"} sem nenhum item.</div>`:""}
   <div class="tablebox"><table><thead><tr><th>Kit</th><th>Atividade / equipe</th><th class="num">Itens</th><th class="num">Peças c/ etiqueta</th></tr></thead><tbody>${S.kits.map(k=>`<tr><td><b>${esc(k.nome)}</b></td><td>${esc(k.local||"—")}</td><td class="num">${k.itens.length}</td><td class="num">${pecas(k)}</td></tr>`).join("")}</tbody></table></div>
   <div class="stack" style="gap:4px"><b>O que acontece ao publicar</b>
    <span class="mini">• É feita uma cópia de segurança da planilha antes de qualquer mudança.</span>
    <span class="mini">• A lista atual (56 ferramentas e 186 peças) é <b>arquivada</b>, não apagada: o histórico de conferências, fotos e ocorrências continua consultável.</span>
    <span class="mini">• Os técnicos passam a conferir pela lista nova na próxima vez que abrirem o app.</span>
+   <span class="mini">• Cada peça passa a ser identificada pelo número de controle definido pelo supervisor (é o que sai na etiqueta e o que o técnico lê).</span>
    <span class="mini">• A foto de cada item vira a foto de cadastro da ferramenta (o técnico vê como referência na conferência).</span>
    <span class="mini">• Patrimônio, foto de cada peça e “exige foto” podem ser completados depois, peça por peça (inclusive pelo celular).</span></div>
-  <div class="row"><span class="spacer"></span><button type="button" class="btn primary big" id="pub" ${totalSemFoto()?"disabled":""}>Publicar nova lista</button></div></div>`;}
+  <div class="row"><span class="spacer"></span><button type="button" class="btn primary big" id="pub" ${totalSemFoto()||problemasNum().vazios||problemasNum().rep.length?"disabled":""}>Publicar nova lista</button></div></div>`;}
 function aPublicar(){$("pub").onclick=()=>toast("Prévia: na versão final, este botão publica a lista nova.");}
 
 render();
