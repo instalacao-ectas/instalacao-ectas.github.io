@@ -29,8 +29,8 @@ const REVALIDAR_MIN = 15;   // de quanto em quanto tempo a sessão é conferida 
 
 /* ---------- abas da planilha ---------- */
 const T = {
-  ferramentas: { aba: "Ferramentas", cols: ["id", "item", "descricao", "qtd", "grupo", "ativa", "foto", "exige_foto"],
-    tit: ["ID", "Item", "Descrição", "Qtd fixa", "Grupo (permanente, almox ou individual)", "Ativa", "Foto de cadastro (arquivo)", "Exige foto na conferência"] },
+  ferramentas: { aba: "Ferramentas", cols: ["id", "item", "descricao", "qtd", "grupo", "ativa", "foto", "exige_foto", "qtd_kits"],
+    tit: ["ID", "Item", "Descrição", "Qtd fixa", "Grupo (permanente, almox ou individual)", "Ativa", "Foto de cadastro (arquivo)", "Exige foto na conferência", "Quantidade por kit (dados)"] },
   kits: { aba: "Kits", cols: ["id", "nome", "responsavel", "local", "tecnicos", "ordem", "ativo"],
     tit: ["ID", "Kit", "Responsável", "Local / equipe", "Técnicos autorizados (logins; vazio = ninguém)", "Ordem", "Ativo"] },
   pecas: { aba: "Peças", cols: ["codigo", "ferramenta", "kit", "situacao", "criado_em", "obs", "foto", "patrimonio"],
@@ -138,7 +138,7 @@ function salvarArquivo_(b64, tipo, nome) {
 function ferramentas_() {
   return ler_("ferramentas").map(f => ({ id: String(f.id).trim(), item: f.item === "" ? null : Number(f.item), desc: String(f.descricao),
     qtd: Number(f.qtd) || 0, grupo: String(f.grupo || "permanente").trim().toLowerCase(), ativa: !/^n/i.test(String(f.ativa)),
-    foto: String(f.foto || ""), exigeFoto: /^s/i.test(String(f.exige_foto || "")) }));
+    foto: String(f.foto || ""), exigeFoto: /^s/i.test(String(f.exige_foto || "")), qtdKits: jsonLer_(f.qtd_kits, null) }));
 }
 function kits_() {
   return ler_("kits").map(k => ({ id: String(k.id).trim(), nome: String(k.nome), responsavel: String(k.responsavel || ""), local: String(k.local || ""),
@@ -484,6 +484,11 @@ function acaoSupervisor_(b) {
       case "configSalvar": return salvarConfig_(b.config || {});
       case "emailTeste": return emailDiario(true);
       case "backupAgora": garantirGatilhoBackup_(); return backupSemanal();
+      case "rascunhoLer": return rascunhoLer_();
+      case "rascunhoSalvar": return rascunhoSalvar_(b);
+      case "rascunhoFoto": return rascunhoFoto_(b);
+      case "rascunhoDescartar": return rascunhoDescartar_();
+      case "listaPublicar": return listaPublicar_(b);
     }
     return { ok: false, erro: "ação desconhecida" };
   } finally { lock.releaseLock(); }
@@ -495,7 +500,8 @@ function listar_(est, usuariosDiario) {
     ferramentas: ferramentas_(), kits: kits_(), pecas: pecas_(), tecnicos: usuariosDiario || [],
     conferencias: ler_("conf").map(conf_), ocorrencias: ler_("oc").map(oc_), config: config_(),
     situacoes: ler_("sit").map(x => ({ uid: String(x.uid), em: String(x.em), codigo: String(x.codigo), ferramenta: String(x.ferramenta),
-      antes: String(x.situacao_antes || ""), situacao: String(x.situacao || ""), obs: String(x.obs || ""), foto: String(x.foto || "") })) };
+      antes: String(x.situacao_antes || ""), situacao: String(x.situacao || ""), obs: String(x.obs || ""), foto: String(x.foto || "") })),
+    rascunho: jsonLer_(prop_("RASCUNHO_RESUMO"), null), listaPublicada: prop_("LISTA_PUBLICADA_EM") };
 }
 
 function revisarConf_(b) {
@@ -534,7 +540,8 @@ function ferramentaSalvar_(f) {
   const id = atual ? String(atual.id) : "f" + Date.now().toString(36);
   const exige = f.exigeFoto === undefined ? (atual ? String(atual.exige_foto || "") : "") : (f.exigeFoto ? "Sim" : "");
   gravar_("ferramentas", { id: id, item: f.item === "" || f.item == null ? "" : Number(f.item), descricao: desc, qtd: Math.max(0, Number(f.qtd) || 0),
-    grupo: grupo, ativa: f.ativa === false ? "Não" : "Sim", foto: atual ? String(atual.foto || "") : "", exige_foto: exige }, atual ? atual._linha : 0);
+    grupo: grupo, ativa: f.ativa === false ? "Não" : "Sim", foto: atual ? String(atual.foto || "") : "", exige_foto: exige,
+    qtd_kits: atual ? String(atual.qtd_kits || "") : "" }, atual ? atual._linha : 0);
   return { ok: true, id: id };
 }
 function ferramentaExcluir_(id) {
@@ -641,6 +648,146 @@ function fotoCadastro_(b) {
   return { ok: true, foto: nova };
 }
 
+/* ---------- lista nova (refazer do zero): rascunho do supervisor e publicação ---------- */
+const RASCUNHO_NOME = "Lista nova de ferramentas (rascunho).json";
+const normNome_ = s => String(s || "").trim().replace(/\s+/g, " ").toLowerCase();
+const normCod_ = s => String(s == null ? "" : s).toUpperCase().replace(/\s+/g, "");
+function rascunhoArq_() {
+  const id = prop_("RASCUNHO_ID");
+  if (id) { try { const f = DriveApp.getFileById(id); if (!f.isTrashed()) return f; } catch (e) { } }
+  return null;
+}
+function rascunhoAtual_() { const f = rascunhoArq_(); return f ? jsonLer_(f.getBlob().getDataAsString(), null) : null; }
+function rascunhoLer_() {
+  return { ok: true, rascunho: rascunhoAtual_(), publicada: prop_("LISTA_PUBLICADA_EM") };
+}
+function resumoRascunho_(r) {
+  return { atualizado_em: r.atualizado_em, kits: r.kits.length, itens: r.kits.reduce((s, k) => s + k.itens.length, 0) };
+}
+// limpa o que veio do navegador: só os campos conhecidos, com tamanho limitado
+function limparRascunho_(r) {
+  return (Array.isArray(r.kits) ? r.kits : []).slice(0, 40).map(k => ({
+    id: limpa_(k.id, 40), nome: limpa_(k.nome, 60), local: limpa_(k.local, 120), responsavel: limpa_(k.responsavel, 80),
+    itens: (Array.isArray(k.itens) ? k.itens : []).slice(0, 300).map(i => {
+      const tipo = i.tipo === "cont" ? "cont" : "qr", qtd = Math.max(1, Math.min(999, Math.floor(Number(i.qtd) || 1)));
+      return { nome: limpa_(i.nome, 160), qtd: qtd, tipo: tipo, foto: limpa_(i.foto, 80),
+        nums: tipo === "qr" ? (Array.isArray(i.nums) ? i.nums : []).slice(0, qtd).map(n => limpa_(n, 30)) : [] };
+    })
+  }));
+}
+function rascunhoSalvar_(b) {
+  const atual = rascunhoAtual_();
+  // dois aparelhos editando ao mesmo tempo: não deixa um apagar o que o outro fez
+  if (atual && Number(b.versao || 0) !== Number(atual.versao || 0)) return { ok: false, codigo: "conflito", erro: "A lista foi alterada em outro aparelho.", rascunho: atual };
+  const r = { versao: (Number(atual && atual.versao) || 0) + 1, atualizado_em: agora_(), kits: limparRascunho_(b.rascunho || {}) };
+  const txt = JSON.stringify(r);
+  let f = rascunhoArq_();
+  if (f) f.setContent(txt);
+  else { f = pasta_(PASTA_ARQ).createFile(RASCUNHO_NOME, txt, "application/json"); PropertiesService.getScriptProperties().setProperty("RASCUNHO_ID", f.getId()); }
+  PropertiesService.getScriptProperties().setProperty("RASCUNHO_RESUMO", JSON.stringify(resumoRascunho_(r)));
+  return { ok: true, versao: r.versao, atualizado_em: r.atualizado_em };
+}
+function rascunhoFoto_(b) {
+  if (!b.foto) return { ok: false, erro: "Tire ou escolha a foto." };
+  return { ok: true, foto: salvarArquivo_(b.foto, "image/jpeg", "Lista nova - " + limpa_(b.nome, 60).trim() + ".jpg") };
+}
+function rascunhoDescartar_() {
+  const f = rascunhoArq_(); if (f) f.setTrashed(true);
+  const pr = PropertiesService.getScriptProperties(); pr.deleteProperty("RASCUNHO_ID"); pr.deleteProperty("RASCUNHO_RESUMO");
+  return { ok: true };
+}
+// confere o rascunho antes de publicar; devolve a lista de problemas (vazia = pode publicar)
+function problemasLista_(kits) {
+  const p = [], nomes = {}, cods = {};
+  if (!kits.length) p.push("Cadastre pelo menos um kit.");
+  kits.forEach(k => {
+    const nk = normNome_(k.nome);
+    if (!nk) p.push("Há um kit sem nome.");
+    else if (nomes[nk]) p.push("Dois kits com o nome " + k.nome + "."); else nomes[nk] = 1;
+    if (!k.itens.length) p.push(k.nome + ": nenhum item.");
+    k.itens.forEach(i => {
+      const onde = k.nome + " / " + (i.nome || "item sem nome");
+      if (!normNome_(i.nome)) p.push(k.nome + ": há um item sem nome.");
+      if (!i.foto) p.push(onde + ": falta a foto.");
+      if (i.tipo === "qr") for (let u = 0; u < i.qtd; u++) {
+        const c = normCod_(i.nums[u]);
+        if (!c) p.push(onde + ": falta o nº de controle da unidade " + (u + 1) + ".");
+        else if (!/^[A-Z0-9][A-Z0-9\-\/._]{0,19}$/.test(c)) p.push(onde + ": o nº " + i.nums[u] + " tem caractere não aceito (use letras, números, - / . _ e até 20 caracteres).");
+        else if (cods[c]) p.push("O nº de controle " + c + " está em duas peças (" + cods[c] + " e " + onde + ")."); else cods[c] = onde;
+      }
+    });
+  });
+  return p;
+}
+function listaPublicar_(b) {
+  const r = rascunhoAtual_();
+  if (!r) return { ok: false, erro: "Não há lista nova para publicar." };
+  if (Number(b.versao || 0) !== Number(r.versao || 0)) return { ok: false, codigo: "conflito", erro: "A lista foi alterada em outro aparelho. Confira antes de publicar.", rascunho: r };
+  const kits = limparRascunho_(r), prob = problemasLista_(kits);
+  if (prob.length) return { ok: false, erro: "A lista ainda tem pendências.", problemas: prob.slice(0, 30) };
+  const quando = agora_(), dia = Utilities.formatDate(new Date(), TZ, "yyyy-MM-dd HH'h'mm");
+  // 1. cópia de segurança da planilha inteira e cópia das abas atuais dentro da própria planilha
+  try { backupSemanal(); } catch (e) { }
+  const ss = planilha_();
+  ["ferramentas", "pecas"].forEach(t => { const sh = aba_(t); try { sh.copyTo(ss).setName("Arquivo " + dia + " " + T[t].aba); } catch (e) { } });
+  // 2. kits: atualiza os que já existiam (mantém os técnicos autorizados), cria os novos e desativa os que saíram
+  const kitsAnt = ler_("kits"), idsKits = [], semTecnico = [];
+  kits.forEach((k, n) => {
+    const ant = k.id ? kitsAnt.find(x => String(x.id) === k.id) : null;
+    const id = ant ? String(ant.id) : "k" + Date.now().toString(36) + n;
+    k.id = id; idsKits.push(id);
+    const tec = ant ? String(ant.tecnicos || "") : "";
+    if (!tec.trim()) semTecnico.push(k.nome.trim());
+    gravar_("kits", { id: id, nome: k.nome.trim(), responsavel: k.responsavel.trim(), local: k.local.trim(), tecnicos: tec, ordem: n + 1, ativo: "Sim" }, ant ? ant._linha : 0);
+  });
+  ler_("kits").forEach(x => { if (idsKits.indexOf(String(x.id)) < 0 && !/^n/i.test(String(x.ativo))) { x.ativo = "Não"; gravar_("kits", x, x._linha); } });
+  // 3. ferramentas: uma por nome (o mesmo nome em vários kits é a mesma ferramenta); reaproveita o ID quando o nome já existia
+  const fAnt = ler_("ferramentas"), novas = [], porNome = {};
+  kits.forEach(k => k.itens.forEach(i => {
+    const nn = normNome_(i.nome);
+    let f = porNome[nn];
+    if (!f) {
+      const ant = fAnt.find(x => normNome_(x.descricao) === nn && String(x.grupo || "permanente").trim().toLowerCase() === "permanente" && novas.every(y => y.id !== String(x.id)));
+      f = porNome[nn] = { id: ant ? String(ant.id) : "f" + Date.now().toString(36) + novas.length, item: novas.length + 1, descricao: i.nome.trim().replace(/\s+/g, " "),
+        qtd: 0, grupo: "permanente", ativa: "Sim", foto: i.foto, exige_foto: ant ? String(ant.exige_foto || "") : "", qtd_kits: {} };
+      novas.push(f);
+    }
+    f.qtd_kits[k.id] = (f.qtd_kits[k.id] || 0) + i.qtd;
+    f.qtd = Math.max(f.qtd, f.qtd_kits[k.id]);
+    i.ferramenta = f.id;
+  }));
+  // ferramentas antigas fora da lista nova ficam inativas (o histórico continua mostrando o nome); almoxarifado e individuais não mudam
+  const ficam = fAnt.filter(x => !novas.some(y => y.id === String(x.id))).map(x => {
+    const perm = String(x.grupo || "permanente").trim().toLowerCase() === "permanente";
+    return T.ferramentas.cols.map(c => c === "ativa" && perm ? "Não" : c === "qtd_kits" && perm ? "{}" : (x[c] == null ? "" : x[c]));
+  });
+  const linhasF = novas.map(f => T.ferramentas.cols.map(c => c === "qtd_kits" ? JSON.stringify(f.qtd_kits) : f[c])).concat(ficam);
+  regravar_("ferramentas", linhasF);
+  // 4. peças: uma por nº de controle. Se o mesmo código já existia na mesma ferramenta, mantém patrimônio, foto e situação
+  const pAnt = ler_("pecas"), linhasP = [];
+  kits.forEach(k => k.itens.forEach(i => {
+    if (i.tipo !== "qr") return;
+    const f = porNome[normNome_(i.nome)];
+    i.nums.forEach(n => {
+      const c = normCod_(n), ant = pAnt.find(x => normCod_(x.codigo) === c && String(x.ferramenta) === f.id);
+      linhasP.push([c, f.id, k.id, ant ? String(ant.situacao || "ativa") : "ativa", ant ? String(ant.criado_em || quando) : quando, ant ? String(ant.obs || "") : "",
+        ant && ant.foto ? String(ant.foto) : (i.foto !== f.foto ? i.foto : ""), ant ? String(ant.patrimonio || "") : ""]);
+    });
+  }));
+  regravar_("pecas", linhasP);
+  // 5. fim: apaga o rascunho
+  rascunhoDescartar_();
+  PropertiesService.getScriptProperties().setProperty("LISTA_PUBLICADA_EM", quando);
+  return { ok: true, kits: kits.length, ferramentas: novas.length, pecas: linhasP.length, semTecnico: semTecnico, arquivo: "Arquivo " + dia };
+}
+// troca todo o conteúdo de uma aba (linha 2 em diante) pelas linhas dadas
+function regravar_(t, linhas) {
+  const def = T[t], sh = aba_(t), n = sh.getLastRow(), cols = def.cols.length;
+  if (n >= 2) sh.getRange(2, 1, n - 1, Math.max(cols, sh.getLastColumn ? sh.getLastColumn() : cols)).clearContent();
+  if (linhas.length) bloco_(sh, 2, linhas.length, cols).setNumberFormat("@").setValues(linhas.map(l => l.map(x => {
+    const v = x == null ? "" : x; return typeof v === "string" && /^[=+\-@]/.test(v) ? "'" + v : v; })));
+}
+
 /* ---------- configurações, aviso diário e cópia de segurança ---------- */
 function config_() {
   const pr = PropertiesService.getScriptProperties();
@@ -686,7 +833,8 @@ function situacaoKits_() {
     const c = confs.filter(x => x.kit === k.id).sort((a, b) => b.criado_em.localeCompare(a.criado_em))[0];
     if (!c) return { kit: k, c: null, atraso: null, faltas: [] };
     const dias = Math.floor((Date.now() - new Date(c.criado_em).getTime()) / 864e5);
-    const faltas = ferr.filter(f => c.itens[f.id] && (c.itens[f.id].q < f.qtd || c.itens[f.id].s !== "ok")).map(f => f.desc + " (" + c.itens[f.id].q + "/" + f.qtd + ")");
+    const esp = f => { const it = c.itens[f.id]; return it.e != null ? Number(it.e) : f.qtdKits ? Number(f.qtdKits[k.id] || 0) : f.qtd; };
+    const faltas = ferr.filter(f => c.itens[f.id] && (c.itens[f.id].q < esp(f) || c.itens[f.id].s !== "ok")).map(f => f.desc + " (" + c.itens[f.id].q + "/" + esp(f) + ")");
     return { kit: k, c: c, dias: dias, atraso: dias > PRAZO_CONFERENCIA, faltas: faltas };
   });
 }
