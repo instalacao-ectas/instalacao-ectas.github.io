@@ -31,6 +31,14 @@
 .resumo b{font-size:22px;font-variant-numeric:tabular-nums}
 .codes{display:flex;flex-wrap:wrap;gap:6px}
 .codes code{border:1px solid var(--line);border-radius:6px;padding:2px 6px;font-size:12px;background:var(--surface)}
+.itemgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,380px),1fr));gap:10px}
+.itemcard{display:flex;gap:12px;border:1px solid var(--line);border-radius:12px;padding:10px;background:var(--surface)}
+.itemcard.semfoto{border-color:#D08A1E;box-shadow:0 0 0 1px #D08A1E}
+.fotoslot{flex:0 0 110px;height:110px;border-radius:10px;border:2px dashed var(--line);background:var(--surface-2);display:grid;place-items:center;overflow:hidden;cursor:pointer;font:inherit;font-size:12px;color:var(--muted);text-align:center;padding:0}
+.itemcard.semfoto .fotoslot{border-color:#D08A1E;color:#B54708}
+.fotoslot img{width:100%;height:100%;object-fit:cover}
+.kittabs .semf{color:#B54708;font-weight:700}.kittabs button[aria-pressed="true"] .semf{color:#FFE2B8}
+.btn[disabled]{opacity:.5;cursor:not-allowed}
 [hidden]{display:none!important}
 </style>
 </head>
@@ -62,8 +70,8 @@ const CATALOGO=["Alicate Bico 6 polegadas","Alicate Corte Diagonal 6 polegadas",
 // dados de exemplo
 const S={passo:0,kitSel:0,etiquetas:"aproveitar",
   kits:[
-    {nome:"Kit Elétrica – Equipe 1",resp:"",local:"Montagem elétrica",itens:[["Alicate Universal 8 polegadas",2,"qr"],["Alicate Corte Diagonal 6 polegadas",2,"qr"],["Múltimetro MDV 0610",1,"qr"],["Chave Phillips Isolada P",1,"qr"],["Caneta permanente",2,"cont"]]},
-    {nome:"Kit Mecânica – Equipe 2",resp:"",local:"Montagem mecânica",itens:[["Chave Grifo 14 polegadas",1,"qr"],["Jogo da Chaves Combinada 6 a 32mm",1,"qr"],["Furadeira Bateria 18 V",1,"qr"],["Bateria Furadeira e Parafusadeira",2,"qr"]]},
+    {nome:"Kit Elétrica – Equipe 1",resp:"",local:"Montagem elétrica",itens:[["Alicate Universal 8 polegadas",2,"qr",""],["Alicate Corte Diagonal 6 polegadas",2,"qr",""],["Múltimetro MDV 0610",1,"qr",""],["Chave Phillips Isolada P",1,"qr",""],["Caneta permanente",2,"cont",""]]},
+    {nome:"Kit Mecânica – Equipe 2",resp:"",local:"Montagem mecânica",itens:[["Chave Grifo 14 polegadas",1,"qr",""],["Jogo da Chaves Combinada 6 a 32mm",1,"qr",""],["Furadeira Bateria 18 V",1,"qr",""],["Bateria Furadeira e Parafusadeira",2,"qr",""]]},
     {nome:"Kit Partida de ETE",resp:"",local:"Start-up / comissionamento",itens:[]}
   ]};
 const PASSOS=["Kits","Ferramentas de cada kit","Etiquetas","Revisar e publicar"];
@@ -78,7 +86,7 @@ function render(){
   ({0:aKits,1:aItens,2:aEtiquetas,3:aPublicar})[S.passo]();
 }
 $("voltar").onclick=()=>{S.passo=Math.max(0,S.passo-1);render();window.scrollTo({top:0,behavior:"smooth"});};
-$("avancar").onclick=()=>{S.passo=Math.min(PASSOS.length-1,S.passo+1);render();window.scrollTo({top:0,behavior:"smooth"});};
+$("avancar").onclick=()=>{if(S.passo===1&&totalSemFoto())toast(`Atenção: ${totalSemFoto()} item(ns) ainda sem foto. Dá para seguir, mas só publica com todas as fotos.`);S.passo=Math.min(PASSOS.length-1,S.passo+1);render();window.scrollTo({top:0,behavior:"smooth"});};
 
 /* 1. kits */
 function pKits(){return `<div class="card stack"><div class="row"><h3>1. Kits</h3><span class="spacer"></span><button type="button" class="btn small" id="kAdd">+ Novo kit</button></div>
@@ -91,29 +99,42 @@ function aKits(){
   document.querySelectorAll("[data-del]").forEach(b=>b.onclick=()=>{if(S.kits.length<2)return toast("Precisa ter pelo menos um kit.");S.kits.splice(+b.dataset.del,1);S.kitSel=0;render();});
 }
 
-/* 2. itens de cada kit */
+/* 2. itens de cada kit (cadastro com foto obrigatória) */
+const semFoto=k=>k.itens.filter(i=>!i[3]).length;
+const totalSemFoto=()=>S.kits.reduce((s,k)=>s+semFoto(k),0);
 function pItens(){const k=S.kits[S.kitSel]||S.kits[0];
   return `<div class="card stack"><h3>2. Ferramentas de cada kit</h3>
-  <p class="mini" style="margin:0">Liste o que <b>realmente</b> está em cada kit hoje, com a quantidade. <b>Com etiqueta</b>: cada unidade ganha um código QR e é conferida peça por peça. <b>Só contagem</b>: itens pequenos ou de consumo, conferidos pela quantidade.</p>
-  <div class="kittabs">${S.kits.map((x,i)=>`<button type="button" data-ks="${i}" aria-pressed="${i===S.kitSel}">${esc(x.nome)}<small>${x.itens.length}</small></button>`).join("")}</div>
+  <p class="mini" style="margin:0">Cadastre o que <b>realmente</b> está em cada kit hoje: <b>foto</b>, nome e quantidade. <b>A foto é obrigatória</b> em todos os itens (no celular, o botão abre a câmera). <b>Etiqueta QR</b>: cada unidade ganha um código e é conferida peça por peça. <b>Só contagem</b>: itens pequenos ou de consumo, conferidos pela quantidade.</p>
+  <div class="kittabs">${S.kits.map((x,i)=>`<button type="button" data-ks="${i}" aria-pressed="${i===S.kitSel}">${esc(x.nome)}<small>${x.itens.length}${semFoto(x)?` · <span class="semf">${semFoto(x)} sem foto</span>`:""}</small></button>`).join("")}</div>
   <datalist id="cat">${CATALOGO.map(c=>`<option value="${esc(c)}">`).join("")}</datalist>
-  <div class="tablebox"><table class="itens"><thead><tr><th>Ferramenta</th><th style="width:90px">Qtd</th><th style="width:150px">Controle</th><th style="width:60px"></th></tr></thead><tbody>
-  ${k.itens.map((it,j)=>`<tr data-j="${j}"><td><input list="cat" data-c="0" value="${esc(it[0])}" placeholder="Digite o nome"></td><td><input type="number" min="1" data-c="1" value="${it[1]}"></td><td><select data-c="2"><option value="qr" ${it[2]==="qr"?"selected":""}>Etiqueta QR</option><option value="cont" ${it[2]==="cont"?"selected":""}>Só contagem</option></select></td><td><button type="button" class="btn small" data-rm="${j}" aria-label="Remover">✕</button></td></tr>`).join("")||`<tr><td colspan="4" class="mini">Nenhum item ainda. Clique em "+ Adicionar ferramenta".</td></tr>`}
-  </tbody></table></div>
-  <div class="row"><button type="button" class="btn" id="iAdd">+ Adicionar ferramenta</button>${S.kits.length>1?`<select id="iCopia" style="max-width:260px"><option value="">Copiar os itens de outro kit…</option>${S.kits.map((x,i)=>i!==S.kitSel?`<option value="${i}">${esc(x.nome)}</option>`:"").join("")}</select>`:""}<span class="spacer"></span><span class="mini"><b>${k.itens.length}</b> itens · <b>${pecas(k)}</b> peças com etiqueta</span></div></div>`;}
+  <input type="file" accept="image/*" capture="environment" id="fotoIn" hidden>
+  <div class="itemgrid">${k.itens.map((it,j)=>`<div class="itemcard${it[3]?"":" semfoto"}" data-j="${j}">
+     <button type="button" class="fotoslot" data-foto="${j}" aria-label="Foto de ${esc(it[0]||"item")}">${it[3]?`<img src="${it[3]}" alt="">`:`<span>📷<br>Tirar foto<br><b>obrigatória</b></span>`}</button>
+     <div class="stack" style="gap:8px;flex:1;min-width:0">
+      <label class="field">Ferramenta<input list="cat" data-c="0" value="${esc(it[0])}" placeholder="Digite o nome"></label>
+      <div class="row" style="gap:8px"><label class="field" style="flex:0 0 84px">Qtd<input type="number" min="1" data-c="1" value="${it[1]}"></label>
+       <label class="field" style="flex:1"><span>Controle</span><select data-c="2"><option value="qr" ${it[2]==="qr"?"selected":""}>Etiqueta QR</option><option value="cont" ${it[2]==="cont"?"selected":""}>Só contagem</option></select></label></div>
+      <div class="row"><span class="mini">${it[3]?"✓ Foto ok":"⚠ Falta a foto"}</span><span class="spacer"></span><button type="button" class="btn small" data-rm="${j}">Remover</button></div>
+     </div></div>`).join("")||`<p class="mini">Nenhum item ainda. Clique em "+ Adicionar ferramenta".</p>`}</div>
+  <div class="row"><button type="button" class="btn primary" id="iAdd">📷 + Adicionar ferramenta</button>${S.kits.length>1?`<select id="iCopia" style="max-width:260px"><option value="">Copiar os itens de outro kit…</option>${S.kits.map((x,i)=>i!==S.kitSel?`<option value="${i}">${esc(x.nome)}</option>`:"").join("")}</select>`:""}<span class="spacer"></span><span class="mini"><b>${k.itens.length}</b> itens · <b>${pecas(k)}</b> peças com etiqueta · <b>${k.itens.length-semFoto(k)}/${k.itens.length}</b> com foto</span></div></div>`;}
+let fotoAlvo=null;
+function encolher(file){return new Promise((ok,no)=>{const img=new Image();img.onload=()=>{const s=Math.min(1,900/Math.max(img.width,img.height)),c=document.createElement("canvas");c.width=Math.round(img.width*s);c.height=Math.round(img.height*s);c.getContext("2d").drawImage(img,0,0,c.width,c.height);URL.revokeObjectURL(img.src);ok(c.toDataURL("image/jpeg",.78));};img.onerror=no;img.src=URL.createObjectURL(file);});}
 function aItens(){const k=S.kits[S.kitSel];
   document.querySelectorAll("[data-ks]").forEach(b=>b.onclick=()=>{S.kitSel=+b.dataset.ks;render();});
-  $("iAdd").onclick=()=>{k.itens.push(["",1,"qr"]);render();const ins=document.querySelectorAll("[data-c='0']");ins[ins.length-1].focus();};
+  // adicionar já começa pela foto
+  $("iAdd").onclick=()=>{k.itens.push(["",1,"qr",""]);fotoAlvo=k.itens.length-1;$("fotoIn").value="";$("fotoIn").click();render();};
+  document.querySelectorAll("[data-foto]").forEach(b=>b.onclick=()=>{fotoAlvo=+b.dataset.foto;$("fotoIn").value="";$("fotoIn").click();});
+  $("fotoIn").onchange=async e=>{const f=e.target.files[0];if(!f||fotoAlvo==null)return;try{k.itens[fotoAlvo][3]=await encolher(f);}catch(err){toast("Não consegui usar a foto.");}const j=fotoAlvo;fotoAlvo=null;render();const i=document.querySelector(`[data-j="${j}"] [data-c="0"]`);if(i&&!i.value)i.focus();};
   document.querySelectorAll("[data-j] [data-c]").forEach(i=>i.onchange=i.oninput=()=>{const j=+i.closest("[data-j]").dataset.j,c=+i.dataset.c;k.itens[j][c]=c===1?Math.max(1,+i.value||1):i.value;});
   document.querySelectorAll("[data-rm]").forEach(b=>b.onclick=()=>{k.itens.splice(+b.dataset.rm,1);render();});
-  const cp=$("iCopia");if(cp)cp.onchange=()=>{if(cp.value==="")return;k.itens=k.itens.concat(S.kits[+cp.value].itens.map(x=>x.slice()));toast("Itens copiados. Ajuste as quantidades.");render();};
+  const cp=$("iCopia");if(cp)cp.onchange=()=>{if(cp.value==="")return;k.itens=k.itens.concat(S.kits[+cp.value].itens.map(x=>[x[0],x[1],x[2],""]));toast("Itens copiados. Tire a foto de cada um e ajuste as quantidades.");render();};
 }
 
 /* 3. etiquetas */
 function pEtiquetas(){const n=totalPecas();let c=187;
   return `<div class="card stack"><h3>3. Etiquetas</h3>
   <p class="mini" style="margin:0">A lista nova tem <b>${n}</b> peças com etiqueta. Como as peças vão receber o código?</p>
-  <label class="opcao"><input type="radio" name="et" value="aproveitar" ${S.etiquetas==="aproveitar"?"checked":""}><div><b>Aproveitar as etiquetas já coladas</b> (recomendado)<br><span class="mini">No celular, o supervisor lê a etiqueta QR que já está na peça e diz a qual item do kit ela pertence. Peças sem etiqueta (ou com etiqueta estragada) ganham um código novo e uma etiqueta para imprimir.</span></div></label>
+  <label class="opcao"><input type="radio" name="et" value="aproveitar" ${S.etiquetas==="aproveitar"?"checked":""}><div><b>Aproveitar as etiquetas já coladas</b> (recomendado)<br><span class="mini">No celular, o supervisor lê a etiqueta QR que já está na peça, diz a qual item do kit ela pertence e pode tirar a foto da peça na mesma hora. Peças sem etiqueta (ou com etiqueta estragada) ganham um código novo e uma etiqueta para imprimir.</span></div></label>
   <label class="opcao"><input type="radio" name="et" value="novas" ${S.etiquetas==="novas"?"checked":""}><div><b>Etiquetas novas para todas as peças</b><br><span class="mini">Gera códigos novos a partir de FER-0187 (os números antigos não são reaproveitados, para não confundir) e um PDF para imprimir. As etiquetas antigas precisam ser retiradas.</span></div></label>
   <div class="stack" style="gap:6px"><b class="mini">${S.etiquetas==="novas"?"Códigos que seriam gerados":"Exemplo de peças que ganhariam código novo"}</b>
   ${S.kits.map(k=>{const cods=[];k.itens.filter(i=>i[2]==="qr").forEach(i=>{for(let q=0;q<(+i[1]||0);q++)cods.push(`FER-${String(c++).padStart(4,"0")}`);});
@@ -124,15 +145,17 @@ function aEtiquetas(){document.querySelectorAll("input[name=et]").forEach(r=>r.o
 /* 4. revisar e publicar */
 function pPublicar(){const itens=S.kits.reduce((s,k)=>s+k.itens.length,0),vazios=S.kits.filter(k=>!k.itens.length);
   return `<div class="card stack"><h3>4. Revisar e publicar</h3>
-  <div class="resumo"><div><span>Kits</span><b>${S.kits.length}</b></div><div><span>Itens</span><b>${itens}</b></div><div><span>Peças com etiqueta</span><b>${totalPecas()}</b></div><div><span>Etiquetas</span><b style="font-size:15px">${S.etiquetas==="novas"?"Todas novas":"Aproveitar as coladas"}</b></div></div>
+  <div class="resumo"><div><span>Kits</span><b>${S.kits.length}</b></div><div><span>Itens</span><b>${itens}</b></div><div><span>Peças com etiqueta</span><b>${totalPecas()}</b></div><div><span>Itens com foto</span><b>${itens-totalSemFoto()}/${itens}</b></div><div><span>Etiquetas</span><b style="font-size:15px">${S.etiquetas==="novas"?"Todas novas":"Aproveitar as coladas"}</b></div></div>
+  ${totalSemFoto()?`<div class="banner">📷 Faltam fotos em <b>${totalSemFoto()}</b> item(ns): ${S.kits.filter(semFoto).map(k=>esc(k.nome)+" ("+semFoto(k)+")").join(", ")}. A lista só pode ser publicada com a foto de todos os itens.</div>`:""}
   ${vazios.length?`<div class="banner">⚠ ${vazios.map(k=>esc(k.nome)).join(", ")} ${vazios.length>1?"estão":"está"} sem nenhum item.</div>`:""}
   <div class="tablebox"><table><thead><tr><th>Kit</th><th>Atividade / equipe</th><th class="num">Itens</th><th class="num">Peças c/ etiqueta</th></tr></thead><tbody>${S.kits.map(k=>`<tr><td><b>${esc(k.nome)}</b></td><td>${esc(k.local||"—")}</td><td class="num">${k.itens.length}</td><td class="num">${pecas(k)}</td></tr>`).join("")}</tbody></table></div>
   <div class="stack" style="gap:4px"><b>O que acontece ao publicar</b>
    <span class="mini">• É feita uma cópia de segurança da planilha antes de qualquer mudança.</span>
    <span class="mini">• A lista atual (56 ferramentas e 186 peças) é <b>arquivada</b>, não apagada: o histórico de conferências, fotos e ocorrências continua consultável.</span>
    <span class="mini">• Os técnicos passam a conferir pela lista nova na próxima vez que abrirem o app.</span>
-   <span class="mini">• Patrimônio, fotos de cadastro e “exige foto” podem ser preenchidos depois, peça por peça (inclusive pelo celular).</span></div>
-  <div class="row"><span class="spacer"></span><button type="button" class="btn primary big" id="pub">Publicar nova lista</button></div></div>`;}
+   <span class="mini">• A foto de cada item vira a foto de cadastro da ferramenta (o técnico vê como referência na conferência).</span>
+   <span class="mini">• Patrimônio, foto de cada peça e “exige foto” podem ser completados depois, peça por peça (inclusive pelo celular).</span></div>
+  <div class="row"><span class="spacer"></span><button type="button" class="btn primary big" id="pub" ${totalSemFoto()?"disabled":""}>Publicar nova lista</button></div></div>`;}
 function aPublicar(){$("pub").onclick=()=>toast("Prévia: na versão final, este botão publica a lista nova.");}
 
 render();
