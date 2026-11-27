@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Prévia · Refazer a lista de ferramentas</title>
+<meta name="theme-color" content="#002B49">
+<link rel="icon" href="icon-192.png">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800&display=swap">
+<link rel="stylesheet" href="style.css?v=4">
+<style>
+.previa{display:flex;gap:10px;align-items:center;flex-wrap:wrap;background:#FEF3E2;border:1px solid #B54708;border-radius:12px;padding:10px 14px;font-size:13.5px;color:#3A2A12}
+.passos{display:flex;gap:6px;flex-wrap:wrap}
+.passos button{font:inherit;font-weight:700;font-size:13.5px;border:1px solid var(--line);background:var(--surface);color:var(--muted);border-radius:999px;padding:8px 14px;cursor:pointer;display:flex;gap:8px;align-items:center}
+.passos button .n{display:inline-grid;place-items:center;width:22px;height:22px;border-radius:50%;background:var(--surface-2);font-size:12px}
+.passos button[aria-current="step"]{border-color:var(--accent);color:var(--fg)}
+.passos button[aria-current="step"] .n{background:var(--accent);color:#FFFFFF}
+.passos button.feito .n{background:#1F9D55;color:#FFFFFF}
+.kitcard{border:1px solid var(--line);border-radius:12px;padding:12px;display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,200px),1fr));gap:10px;align-items:end;background:var(--surface)}
+.kittabs{display:flex;gap:6px;flex-wrap:wrap}
+.kittabs button{font:inherit;font-weight:700;font-size:13.5px;border:1px solid var(--line);background:var(--surface);color:var(--fg);border-radius:10px;padding:8px 12px;cursor:pointer}
+.kittabs button[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:#FFFFFF}
+.kittabs small{font-weight:500;opacity:.8;margin-left:6px}
+.itens td input,.itens td select{width:100%}
+.opcao{border:1px solid var(--line);border-radius:12px;padding:12px 14px;display:flex;gap:12px;align-items:flex-start;cursor:pointer;background:var(--surface)}
+.opcao:has(input:checked){border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
+.opcao input{margin-top:4px;width:18px;height:18px}
+.resumo{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
+.resumo div{border:1px solid var(--line);border-radius:12px;padding:10px 12px;background:var(--surface)}
+.resumo span{display:block;font-size:11.5px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
+.resumo b{font-size:22px;font-variant-numeric:tabular-nums}
+.codes{display:flex;flex-wrap:wrap;gap:6px}
+.codes code{border:1px solid var(--line);border-radius:6px;padding:2px 6px;font-size:12px;background:var(--surface)}
+[hidden]{display:none!important}
+</style>
+</head>
+<body>
+<header class="band">
+  <div class="wrap wide">
+    <div class="logo"><img src="../logo.png" alt="ECTAS Saneamento"></div>
+    <div class="apptitle"><h1>Painel do Supervisor</h1><p>Controle de Ferramentas · Refazer a lista do zero</p></div>
+  </div>
+  <div class="stripe"></div>
+</header>
+
+<main class="wrap wide stack" style="padding-top:16px;padding-bottom:48px;gap:14px">
+  <div class="previa"><b>Prévia</b><span>Tela de demonstração com dados de exemplo. Nada aqui altera a lista real nem o que os técnicos veem.</span></div>
+  <div><h2 style="margin:0">Refazer a lista de ferramentas</h2><p class="lead" style="margin:4px 0 0">O supervisor monta a lista nova kit por kit. Enquanto não clicar em <b>Publicar</b>, os técnicos continuam usando a lista atual.</p></div>
+  <nav class="passos" id="passos" aria-label="Etapas"></nav>
+  <section id="etapa"></section>
+  <div class="row"><button type="button" class="btn" id="voltar">← Voltar</button><span class="spacer"></span><button type="button" class="btn primary" id="avancar">Avançar →</button></div>
+</main>
+<div id="toast" class="toast" hidden></div>
+
+<script>
+(()=>{
+const $=id=>document.getElementById(id);
+const esc=s=>String(s==null?"":s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const toast=t=>{const e=$("toast");e.textContent=t;e.hidden=false;clearTimeout(e._t);e._t=setTimeout(()=>e.hidden=true,2600);};
+// catálogo atual (nomes já usados), para sugerir ao digitar
+const CATALOGO=["Alicate Bico 6 polegadas","Alicate Corte Diagonal 6 polegadas","Alicate Crimpador (Ilhois) - 0,5 até 16mm²","Alicate Crimpador (Olhais) 0,5 até 16mm²","Alicate de Pressão 10 polegadas","Alicate Universal 8 polegadas","Alicate bico de papagaio 12 polegadas","Arco de Serra Manual 12 polegadas","Bateria Furadeira e Parafusadeira","Kit de brocas aço rapido (4mm a 10mm) e vidia (4mm a 10mm)","Carregador de Bateria","Kit chave ALLEN","Chave Corrente 5 polegadas","Chave de Borne 3mm x 75mm","Chave de Fenda 8 x 150 mm","Chave de Fenda Isolada 6 x 150 mm","Chave Grifo 14 polegadas","Chave Inglesa 12\"","Chave de Mandril","Chave Phillips M","Chave Phillips Isolada G","Chave Phillips Isolada P","Cinta com Catraca","Esmerilhadeira Elétrica 850W 220V","Esmerilhadeira bateria (18V a 20V)","Espátula","Esquadro 12 polegadas","Estilete 6 polegadas","Furadeira Bateria 18 V","Furadeira Elétrica 750W","Furadeira Elétrica - impacto 820W","Jogo da Chaves Combinada 6 a 32mm","Lima 8 polegadas","Maleta de Chaves de Catraca 8 a 32 mm","Martelo 27mm","Martelo de Borracha 50mm","Marreta 1kg","Múltimetro MDV 0610","Nível Bolha 50 cm","Parafusadeira a Bateria 18V","Soprador térmico 2000W","Talhadeira","Régua elétrica","Trena - 50m","Bolsa para ferramentas","Caneta permanente","Linha de nylon"];
+// dados de exemplo
+const S={passo:0,kitSel:0,etiquetas:"aproveitar",
+  kits:[
+    {nome:"Kit Elétrica – Equipe 1",resp:"",local:"Montagem elétrica",itens:[["Alicate Universal 8 polegadas",2,"qr"],["Alicate Corte Diagonal 6 polegadas",2,"qr"],["Múltimetro MDV 0610",1,"qr"],["Chave Phillips Isolada P",1,"qr"],["Caneta permanente",2,"cont"]]},
+    {nome:"Kit Mecânica – Equipe 2",resp:"",local:"Montagem mecânica",itens:[["Chave Grifo 14 polegadas",1,"qr"],["Jogo da Chaves Combinada 6 a 32mm",1,"qr"],["Furadeira Bateria 18 V",1,"qr"],["Bateria Furadeira e Parafusadeira",2,"qr"]]},
+    {nome:"Kit Partida de ETE",resp:"",local:"Start-up / comissionamento",itens:[]}
+  ]};
+const PASSOS=["Kits","Ferramentas de cada kit","Etiquetas","Revisar e publicar"];
+const pecas=k=>k.itens.filter(i=>i[2]==="qr").reduce((s,i)=>s+(+i[1]||0),0);
+const totalPecas=()=>S.kits.reduce((s,k)=>s+pecas(k),0);
+
+function render(){
+  $("passos").innerHTML=PASSOS.map((p,i)=>`<button type="button" data-p="${i}" ${i===S.passo?'aria-current="step"':""} class="${i<S.passo?"feito":""}"><span class="n">${i<S.passo?"✓":i+1}</span>${p}</button>`).join("");
+  $("passos").querySelectorAll("[data-p]").forEach(b=>b.onclick=()=>{S.passo=+b.dataset.p;render();});
+  $("voltar").hidden=S.passo===0;$("avancar").hidden=S.passo===PASSOS.length-1;
+  $("etapa").innerHTML=[pKits,pItens,pEtiquetas,pPublicar][S.passo]();
+  ({0:aKits,1:aItens,2:aEtiquetas,3:aPublicar})[S.passo]();
+}
+$("voltar").onclick=()=>{S.passo=Math.max(0,S.passo-1);render();window.scrollTo({top:0,behavior:"smooth"});};
+$("avancar").onclick=()=>{S.passo=Math.min(PASSOS.length-1,S.passo+1);render();window.scrollTo({top:0,behavior:"smooth"});};
+
+/* 1. kits */
+function pKits(){return `<div class="card stack"><div class="row"><h3>1. Kits</h3><span class="spacer"></span><button type="button" class="btn small" id="kAdd">+ Novo kit</button></div>
+  <p class="mini" style="margin:0">Dê a cada kit um nome que identifique a atividade ou a equipe (ex.: <i>Kit Elétrica – Equipe 1</i>, <i>Kit Partida de ETE</i>). Os nomes abaixo são exemplos: troque pelos de vocês.</p>
+  ${S.kits.map((k,i)=>`<div class="kitcard" data-k="${i}"><label class="field">Nome do kit<input data-f="nome" value="${esc(k.nome)}"></label><label class="field">Atividade / equipe<input data-f="local" value="${esc(k.local)}" placeholder="Ex.: montagem elétrica"></label><label class="field">Responsável<input data-f="resp" value="${esc(k.resp)}" placeholder="Nome do técnico"></label><div class="row"><span class="mini">${k.itens.length} itens · ${pecas(k)} peças com etiqueta</span><span class="spacer"></span><button type="button" class="btn small bad" data-del="${i}">Remover</button></div></div>`).join("")}
+  <p class="mini" style="margin:0">Os técnicos autorizados de cada kit continuam sendo marcados em Cadastro &gt; Kits &gt; Editar.</p></div>`;}
+function aKits(){
+  $("kAdd").onclick=()=>{S.kits.push({nome:"Novo kit "+(S.kits.length+1),resp:"",local:"",itens:[]});render();};
+  document.querySelectorAll("[data-k] input").forEach(i=>i.oninput=()=>{S.kits[+i.closest("[data-k]").dataset.k][i.dataset.f]=i.value;});
+  document.querySelectorAll("[data-del]").forEach(b=>b.onclick=()=>{if(S.kits.length<2)return toast("Precisa ter pelo menos um kit.");S.kits.splice(+b.dataset.del,1);S.kitSel=0;render();});
+}
+
+/* 2. itens de cada kit */
+function pItens(){const k=S.kits[S.kitSel]||S.kits[0];
+  return `<div class="card stack"><h3>2. Ferramentas de cada kit</h3>
+  <p class="mini" style="margin:0">Liste o que <b>realmente</b> está em cada kit hoje, com a quantidade. <b>Com etiqueta</b>: cada unidade ganha um código QR e é conferida peça por peça. <b>Só contagem</b>: itens pequenos ou de consumo, conferidos pela quantidade.</p>
+  <div class="kittabs">${S.kits.map((x,i)=>`<button type="button" data-ks="${i}" aria-pressed="${i===S.kitSel}">${esc(x.nome)}<small>${x.itens.length}</small></button>`).join("")}</div>
+  <datalist id="cat">${CATALOGO.map(c=>`<option value="${esc(c)}">`).join("")}</datalist>
+  <div class="tablebox"><table class="itens"><thead><tr><th>Ferramenta</th><th style="width:90px">Qtd</th><th style="width:150px">Controle</th><th style="width:60px"></th></tr></thead><tbody>
+  ${k.itens.map((it,j)=>`<tr data-j="${j}"><td><input list="cat" data-c="0" value="${esc(it[0])}" placeholder="Digite o nome"></td><td><input type="number" min="1" data-c="1" value="${it[1]}"></td><td><select data-c="2"><option value="qr" ${it[2]==="qr"?"selected":""}>Etiqueta QR</option><option value="cont" ${it[2]==="cont"?"selected":""}>Só contagem</option></select></td><td><button type="button" class="btn small" data-rm="${j}" aria-label="Remover">✕</button></td></tr>`).join("")||`<tr><td colspan="4" class="mini">Nenhum item ainda. Clique em "+ Adicionar ferramenta".</td></tr>`}
+  </tbody></table></div>
+  <div class="row"><button type="button" class="btn" id="iAdd">+ Adicionar ferramenta</button>${S.kits.length>1?`<select id="iCopia" style="max-width:260px"><option value="">Copiar os itens de outro kit…</option>${S.kits.map((x,i)=>i!==S.kitSel?`<option value="${i}">${esc(x.nome)}</option>`:"").join("")}</select>`:""}<span class="spacer"></span><span class="mini"><b>${k.itens.length}</b> itens · <b>${pecas(k)}</b> peças com etiqueta</span></div></div>`;}
+function aItens(){const k=S.kits[S.kitSel];
+  document.querySelectorAll("[data-ks]").forEach(b=>b.onclick=()=>{S.kitSel=+b.dataset.ks;render();});
+  $("iAdd").onclick=()=>{k.itens.push(["",1,"qr"]);render();const ins=document.querySelectorAll("[data-c='0']");ins[ins.length-1].focus();};
+  document.querySelectorAll("[data-j] [data-c]").forEach(i=>i.onchange=i.oninput=()=>{const j=+i.closest("[data-j]").dataset.j,c=+i.dataset.c;k.itens[j][c]=c===1?Math.max(1,+i.value||1):i.value;});
+  document.querySelectorAll("[data-rm]").forEach(b=>b.onclick=()=>{k.itens.splice(+b.dataset.rm,1);render();});
+  const cp=$("iCopia");if(cp)cp.onchange=()=>{if(cp.value==="")return;k.itens=k.itens.concat(S.kits[+cp.value].itens.map(x=>x.slice()));toast("Itens copiados. Ajuste as quantidades.");render();};
+}
+
+/* 3. etiquetas */
+function pEtiquetas(){const n=totalPecas();let c=187;
+  return `<div class="card stack"><h3>3. Etiquetas</h3>
+  <p class="mini" style="margin:0">A lista nova tem <b>${n}</b> peças com etiqueta. Como as peças vão receber o código?</p>
+  <label class="opcao"><input type="radio" name="et" value="aproveitar" ${S.etiquetas==="aproveitar"?"checked":""}><div><b>Aproveitar as etiquetas já coladas</b> (recomendado)<br><span class="mini">No celular, o supervisor lê a etiqueta QR que já está na peça e diz a qual item do kit ela pertence. Peças sem etiqueta (ou com etiqueta estragada) ganham um código novo e uma etiqueta para imprimir.</span></div></label>
+  <label class="opcao"><input type="radio" name="et" value="novas" ${S.etiquetas==="novas"?"checked":""}><div><b>Etiquetas novas para todas as peças</b><br><span class="mini">Gera códigos novos a partir de FER-0187 (os números antigos não são reaproveitados, para não confundir) e um PDF para imprimir. As etiquetas antigas precisam ser retiradas.</span></div></label>
+  <div class="stack" style="gap:6px"><b class="mini">${S.etiquetas==="novas"?"Códigos que seriam gerados":"Exemplo de peças que ganhariam código novo"}</b>
+  ${S.kits.map(k=>{const cods=[];k.itens.filter(i=>i[2]==="qr").forEach(i=>{for(let q=0;q<(+i[1]||0);q++)cods.push(`FER-${String(c++).padStart(4,"0")}`);});
+    return cods.length?`<div><span class="mini"><b>${esc(k.nome)}</b> · ${cods.length} peças</span><div class="codes">${(S.etiquetas==="novas"?cods:cods.slice(0,2)).map(x=>`<code>${x}</code>`).join("")}${S.etiquetas==="novas"?"":`<span class="mini">… só as que não tiverem etiqueta</span>`}</div></div>`:"";}).join("")}</div>
+  <div class="row"><button type="button" class="btn" disabled>Baixar PDF das etiquetas (na versão final)</button></div></div>`;}
+function aEtiquetas(){document.querySelectorAll("input[name=et]").forEach(r=>r.onchange=()=>{S.etiquetas=r.value;render();});}
+
+/* 4. revisar e publicar */
+function pPublicar(){const itens=S.kits.reduce((s,k)=>s+k.itens.length,0),vazios=S.kits.filter(k=>!k.itens.length);
+  return `<div class="card stack"><h3>4. Revisar e publicar</h3>
+  <div class="resumo"><div><span>Kits</span><b>${S.kits.length}</b></div><div><span>Itens</span><b>${itens}</b></div><div><span>Peças com etiqueta</span><b>${totalPecas()}</b></div><div><span>Etiquetas</span><b style="font-size:15px">${S.etiquetas==="novas"?"Todas novas":"Aproveitar as coladas"}</b></div></div>
+  ${vazios.length?`<div class="banner">⚠ ${vazios.map(k=>esc(k.nome)).join(", ")} ${vazios.length>1?"estão":"está"} sem nenhum item.</div>`:""}
+  <div class="tablebox"><table><thead><tr><th>Kit</th><th>Atividade / equipe</th><th class="num">Itens</th><th class="num">Peças c/ etiqueta</th></tr></thead><tbody>${S.kits.map(k=>`<tr><td><b>${esc(k.nome)}</b></td><td>${esc(k.local||"—")}</td><td class="num">${k.itens.length}</td><td class="num">${pecas(k)}</td></tr>`).join("")}</tbody></table></div>
+  <div class="stack" style="gap:4px"><b>O que acontece ao publicar</b>
+   <span class="mini">• É feita uma cópia de segurança da planilha antes de qualquer mudança.</span>
+   <span class="mini">• A lista atual (56 ferramentas e 186 peças) é <b>arquivada</b>, não apagada: o histórico de conferências, fotos e ocorrências continua consultável.</span>
+   <span class="mini">• Os técnicos passam a conferir pela lista nova na próxima vez que abrirem o app.</span>
+   <span class="mini">• Patrimônio, fotos de cadastro e “exige foto” podem ser preenchidos depois, peça por peça (inclusive pelo celular).</span></div>
+  <div class="row"><span class="spacer"></span><button type="button" class="btn primary big" id="pub">Publicar nova lista</button></div></div>`;}
+function aPublicar(){$("pub").onclick=()=>toast("Prévia: na versão final, este botão publica a lista nova.");}
+
+render();
+})();
+</script>
+</body>
+</html>
