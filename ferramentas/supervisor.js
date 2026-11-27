@@ -16,7 +16,7 @@ const GRUPOS={permanente:"Kit (permanente)",almox:"Almoxarifado",individual:"Ind
 
 /* se o site foi atualizado e esta página ainda é a versão anterior guardada no navegador, recarrega sozinha uma vez */
 (async()=>{try{const h=await fetch("supervisor.html",{cache:"no-store"}).then(r=>r.text());const m=h.match(/supervisor\.js\?v=(\d+)/);
-  if(m&&m[1]!=="7"){const k="fer-recarregou-sup-"+m[1];if(!sessionStorage.getItem(k)){sessionStorage.setItem(k,"1");location.reload();}}}catch(e){}})();
+  if(m&&m[1]!=="8"){const k="fer-recarregou-sup-"+m[1];if(!sessionStorage.getItem(k)){sessionStorage.setItem(k,"1");location.reload();}}}catch(e){}})();
 let senha="",D=null;
 const S={tab:"painel",apF:"pendente",ocF:"abertas",uq:"",uKit:"",uOpen:null,arquivos:{},fotosConf:{}};
 
@@ -221,20 +221,126 @@ function formSituacaoTool(toolId){
   const falta=[...new Set(ids)].filter(id=>!S.arquivos[id]);
   if(falta.length)(async()=>{for(const id of falta)await baixarArq(id);if(!$("modal").hidden&&document.querySelector("#modal [data-regsit],#modal .fotopar"))formSituacaoTool(toolId);})();
 }
+/* ---------- câmera do celular no painel: leitor de QR / código de barras ---------- */
+function carregarJsQR(){return window.jsQR?Promise.resolve():new Promise((ok,no)=>{const s=document.createElement("script");s.src="lib/jsQR.js";s.onload=ok;s.onerror=no;document.head.appendChild(s);});}
+const FORMATOS_BARRA=["qr_code","code_128","code_39","code_93","ean_13","ean_8","itf","codabar","upc_a","upc_e","data_matrix"];
+const temLeitorBarras=()=>"BarcodeDetector" in window;
+// abre a câmera traseira e devolve o primeiro código lido (QR da etiqueta ou código de barras do patrimônio); null se fechar
+function lerCodigo(titulo,tipo){
+  return new Promise(async fim=>{
+    const ov=document.createElement("div");ov.className="scanner";
+    ov.innerHTML=`<video playsinline muted></video><div class="mira"${tipo==="barras"?' style="aspect-ratio:2/1;width:min(80vw,380px)"':""}></div>
+      <div class="topo"><b style="flex:1">${esc(titulo)}</b></div>
+      <div class="base"><div class="ultimo" role="status">${tipo==="barras"?"Aponte para o código de barras ou QR da plaqueta de patrimônio.":"Aponte para a etiqueta QR da peça."}</div>
+      <div class="row"><button type="button" class="btn" data-dig>Digitar</button><span class="spacer"></span><button type="button" class="btn primary" data-fim>Fechar</button></div></div>`;
+    document.body.appendChild(ov);
+    const v=ov.querySelector("video"),st=ov.querySelector(".ultimo");let stream=null,vivo=true;
+    const sair=val=>{vivo=false;try{stream&&stream.getTracks().forEach(t=>t.stop());}catch(e){}ov.remove();fim(val);};
+    ov.querySelector("[data-fim]").onclick=()=>sair(null);
+    ov.querySelector("[data-dig]").onclick=()=>{const x=prompt(tipo==="barras"?"Nº de patrimônio:":"Código da peça (ex.: FER-0012):");sair(x&&x.trim()?x.trim():null);};
+    if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){st.textContent="Este aparelho não liberou a câmera aqui. Toque em Digitar.";return;}
+    try{stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:"environment"},width:{ideal:1280},height:{ideal:720}},audio:false});v.srcObject=stream;await v.play();}
+    catch(e){st.textContent="Não consegui abrir a câmera. Libere a câmera para este site no navegador ou toque em Digitar.";return;}
+    let det=null;if(temLeitorBarras()){try{det=new BarcodeDetector({formats:tipo==="barras"?FORMATOS_BARRA:["qr_code"]});}catch(e){try{det=new BarcodeDetector();}catch(e2){det=null;}}}
+    if(!det){try{await carregarJsQR();}catch(e){}if(tipo==="barras")st.textContent="Este navegador lê só QR Code. Para código de barras, use o Chrome no Android ou toque em Digitar.";}
+    const c=document.createElement("canvas"),g=c.getContext("2d",{willReadFrequently:true});
+    const passo=async()=>{if(!vivo)return;
+      try{if(v.readyState>=2){let txt="";
+        if(det){const r=await det.detect(v);if(r&&r[0])txt=r[0].rawValue;}
+        else if(window.jsQR){const w=Math.min(v.videoWidth,720),h=Math.round(v.videoHeight*w/v.videoWidth);c.width=w;c.height=h;g.drawImage(v,0,0,w,h);const q=window.jsQR(g.getImageData(0,0,w,h).data,w,h,{inversionAttempts:"dontInvert"});if(q)txt=q.data;}
+        if(txt){ov.querySelector(".mira").classList.add("hit");if(navigator.vibrate)navigator.vibrate(60);setTimeout(()=>sair(txt.trim()),150);return;}}}catch(e){}
+      setTimeout(passo,180);};
+    passo();
+  });
+}
+
+/* ---------- cadastro pelo celular: ler a peça, patrimônio e foto, uma peça depois da outra ---------- */
+function cadastroCelular(codigo){
+  const u=codigo&&pecaBy(codigo),t=u&&toolById(u.ferramenta);
+  if(!u){abrirModal(`<h3>📱 Cadastro pelo celular</h3>
+    <p class="mini" style="margin:0">Leia a etiqueta QR da peça com a câmera. Em seguida cadastre o nº de patrimônio e a foto de cadastro, e passe para a próxima.</p>
+    ${codigo?`<div class="banner">${esc(codigo)} não está cadastrada.</div>`:""}
+    <button type="button" class="btn primary big" id="ccLer">📷 Ler etiqueta da peça</button>
+    <div class="scanbar"><input id="ccCod" placeholder="ou digite o código (ex.: FER-0012)" autocapitalize="characters" autocomplete="off"><button type="button" class="btn" id="ccIr">Abrir</button></div>
+    <div class="row"><span class="mini">${D.pecas.filter(p=>p.patrimonio).length} de ${D.pecas.filter(p=>p.situacao!=="baixada").length} peças com patrimônio</span><span class="spacer"></span><button type="button" class="btn" data-fechar>Fechar</button></div>`);
+    $("ccLer").onclick=async()=>{const x=await lerCodigo("Leia a etiqueta da peça","qr");if(x)cadastroCelular(normCode(x));};
+    $("ccIr").onclick=()=>{const x=$("ccCod").value.trim();if(x)cadastroCelular(normCode(x));};
+    return;}
+  const cad=u.foto||(t&&t.foto)||"";const [sl,sc]=SIT[u.situacao]||SIT.ativa;
+  abrirModal(`<h3>📱 ${u.codigo} · ${esc(t?t.desc:"")}</h3>
+   <div class="row"><span class="mini">${esc(kitName(u.kit))}</span><span class="spacer"></span><span class="chip ${sc}">${sl}</span></div>
+   <div class="fotopar" style="width:100%"><div class="ph" style="aspect-ratio:4/3">${cad?arqImg(cad,"Foto de cadastro"):`<span>Sem foto de cadastro</span>`}</div><span class="mini">${u.foto?"Foto desta peça":cad?"Foto da ferramenta (modelo)":"Ainda sem foto"}</span></div>
+   <input type="file" accept="image/*" capture="environment" id="ccFoto" hidden>
+   <button type="button" class="btn big" id="ccTirar">📷 ${u.foto?"Trocar a foto desta peça":"Tirar foto desta peça"}</button>
+   <label class="field">Nº de patrimônio<div class="scanbar" style="margin:0"><input id="ccPat" value="${esc(u.patrimonio||"")}" placeholder="Digite ou leia a plaqueta" autocomplete="off" inputmode="text"><button type="button" class="btn" id="ccLerPat" title="Ler código de barras ou QR da plaqueta">📷 Ler</button></div></label>
+   <div class="msg" id="ccMsg" role="status"></div>
+   <div class="row"><button type="button" class="btn" data-fechar>Fechar</button><span class="spacer"></span><button type="button" class="btn primary" id="ccProx">Salvar e ler a próxima</button></div>`);
+  if(cad&&!S.arquivos[cad])baixarArq(cad).then(()=>{if(!$("modal").hidden&&$("ccProx"))cadastroCelular(u.codigo);});
+  const msg=(t,err)=>{$("ccMsg").textContent=t;$("ccMsg").className="msg"+(err?" err":"");};
+  $("ccTirar").onclick=()=>$("ccFoto").click();
+  $("ccFoto").onchange=async e=>{const f=e.target.files[0];if(!f)return;msg("Enviando a foto…");$("ccTirar").disabled=true;
+    try{const img=await encolher(f,1280,.8);const r=await chamar("fotoCadastro",{tipo:"peca",id:u.codigo,foto:img.split(",")[1]});if(!r.ok)throw new Error(r.erro);
+      if(r.foto)S.arquivos[r.foto]=img;u.foto=r.foto;msg("Foto salva.");const pat=$("ccPat").value;cadastroCelular(u.codigo);$("ccPat").value=pat;msg("Foto salva.");}
+    catch(err){msg("Não consegui salvar a foto: "+err.message,true);$("ccTirar").disabled=false;}};
+  $("ccLerPat").onclick=async()=>{const x=await lerCodigo("Leia a plaqueta de patrimônio","barras");if(x){$("ccPat").value=x;msg("Patrimônio lido: "+x+". Confira e salve.");}};
+  $("ccProx").onclick=async()=>{const pat=$("ccPat").value.trim();
+    if(pat!==(u.patrimonio||"")){$("ccProx").disabled=true;msg("Salvando…");
+      const r=await chamar("pecaSalvar",{peca:{codigo:u.codigo,patrimonio:pat}}).catch(err=>({ok:false,erro:err.message}));
+      if(!r.ok){msg(r.erro||"Não consegui salvar.",true);$("ccProx").disabled=false;return;}u.patrimonio=pat;toast("Patrimônio de "+u.codigo+" salvo.");}
+    const x=await lerCodigo("Leia a etiqueta da próxima peça","qr");
+    if(x)cadastroCelular(normCode(x));else{fecharModal();carregar();}};
+}
+
+/* ---------- patrimônio de todas as peças numa tela só ---------- */
+function formPatrimonioTodas(){
+  const kits=D.kits.slice().sort((a,b)=>a.nome.localeCompare(b.nome,"pt"));
+  const desenhar=()=>{
+    const kf=$("ptKit")?$("ptKit").value:"",so=$("ptSo")?$("ptSo").checked:false;
+    const ps=D.pecas.filter(p=>p.situacao!=="baixada"&&(!kf||p.kit===kf)&&(!so||!p.patrimonio)).sort((a,b)=>a.codigo.localeCompare(b.codigo));
+    $("ptRows").innerHTML=ps.map(p=>{const t=toolById(p.ferramenta);return `<tr><td><code class="k">${p.codigo}</code></td><td style="min-width:180px">${esc(t?t.desc:"")}</td><td>${esc(kitName(p.kit))}</td><td><div class="scanbar" style="margin:0;min-width:200px"><input data-patc="${p.codigo}" value="${esc(p.patrimonio||"")}" placeholder="—" autocomplete="off"><button type="button" class="btn small" data-lerpat="${p.codigo}" title="Ler a plaqueta com a câmera">📷</button></div></td></tr>`;}).join("")||`<tr><td colspan="4" class="mini">Nenhuma peça neste filtro.</td></tr>`;
+    const ins=[...document.querySelectorAll("#ptRows [data-patc]")];
+    ins.forEach((i,n)=>i.addEventListener("keydown",e=>{if(e.key==="Enter"){e.preventDefault();(ins[n+1]||$("ptSalvar")).focus();}}));
+    document.querySelectorAll("#ptRows [data-lerpat]").forEach(b=>b.onclick=async()=>{const x=await lerCodigo("Plaqueta de "+b.dataset.lerpat,"barras");if(x){const i=document.querySelector(`#ptRows [data-patc="${b.dataset.lerpat}"]`);i.value=x;i.dispatchEvent(new Event("input"));}});
+  };
+  const ativas=D.pecas.filter(p=>p.situacao!=="baixada"),com=ativas.filter(p=>p.patrimonio).length;
+  abrirModal(`<h3>Patrimônio de todas as peças</h3>
+   <p class="mini" style="margin:0">${com} de ${ativas.length} peças já têm nº de patrimônio. Digite (ou leia com 📷 no celular) e clique em Salvar. O mesmo número não pode estar em duas peças.</p>
+   <div class="row"><label class="field" style="max-width:200px">Kit<select id="ptKit"><option value="">Todos os kits</option>${kits.map(k=>`<option value="${k.id}">${esc(k.nome)}</option>`).join("")}</select></label>
+    <label class="mini" style="display:flex;gap:6px;align-items:center;align-self:flex-end"><input type="checkbox" id="ptSo"> Só as que ainda não têm</label></div>
+   <div class="tablebox" style="max-height:52vh;overflow:auto"><table><thead><tr><th>Código</th><th>Ferramenta</th><th>Kit</th><th>Nº de patrimônio</th></tr></thead><tbody id="ptRows"></tbody></table></div>
+   <div class="msg" id="patMsg" role="status"></div>
+   <div class="row"><button type="button" class="btn" data-fechar>Fechar</button><span class="spacer"></span><button type="button" class="btn primary" id="ptSalvar">Salvar patrimônios</button></div>`);
+  // guarda o que foi digitado mesmo trocando o filtro
+  const digitado={};
+  $("modal-box").addEventListener("input",e=>{const i=e.target.closest("[data-patc]");if(i)digitado[i.dataset.patc]=i.value.trim();});
+  const redesenhar=()=>{desenhar();Object.entries(digitado).forEach(([c,v])=>{const i=document.querySelector(`#ptRows [data-patc="${c}"]`);if(i)i.value=v;});};
+  $("ptKit").onchange=redesenhar;$("ptSo").onchange=redesenhar;desenhar();
+  $("ptSalvar").onclick=async()=>{
+    const lista=Object.entries(digitado).map(([codigo,patrimonio])=>({codigo,patrimonio})).filter(x=>(pecaBy(x.codigo)||{}).patrimonio!==x.patrimonio);
+    if(!lista.length){$("patMsg").textContent="Nada mudou.";$("patMsg").className="msg";return;}
+    const np=x=>String(x||"").toUpperCase().replace(/[\s.\-\/]/g,"");const dono={};let rep="";
+    for(const p of D.pecas){const v=p.codigo in digitado?digitado[p.codigo]:(p.patrimonio||"");const n=np(v);if(!n)continue;if(dono[n]){rep=`O patrimônio ${v} está em ${dono[n]} e ${p.codigo}.`;break;}dono[n]=p.codigo;}
+    if(rep){$("patMsg").textContent=rep;$("patMsg").className="msg err";return;}
+    const b=$("ptSalvar");b.disabled=true;b.textContent="Salvando…";
+    const r=await chamar("patrimoniosSalvar",{lista}).catch(err=>({ok:false,erro:err.message}));
+    if(!r.ok){$("patMsg").textContent=r.erro||"Não consegui salvar.";$("patMsg").className="msg err";b.disabled=false;b.textContent="Salvar patrimônios";return;}
+    fecharModal();toast(`${r.alteradas} patrimônio${r.alteradas===1?"":"s"} salvo${r.alteradas===1?"":"s"}.`);await carregar();};
+}
 function formFoto(tipo,id,titulo,atual){
   abrirModal(`<h3>Foto de cadastro · ${esc(titulo)}</h3>
    <div class="fotopar" style="width:100%"><div class="ph" style="aspect-ratio:4/3">${atual?arqImg(atual,titulo):`<span>Ainda sem foto de cadastro.</span>`}</div></div>
    <p class="mini" style="margin:0">${tipo==="peca"?"Foto desta peça específica (marcas, número de série, estado quando entrou no kit). Se não tiver, vale a foto da ferramenta.":"Foto do modelo: vale para todas as peças desta ferramenta que não tiverem foto própria."} O técnico vê esta foto como referência na conferência.</p>
-   <input type="file" accept="image/*" id="ffArq" hidden>
+   <input type="file" accept="image/*" id="ffArq" hidden><input type="file" accept="image/*" capture="environment" id="ffCam" hidden>
    <div class="msg" id="ffMsg"></div>
-   <div class="row"><button type="button" class="btn" data-fechar>Fechar</button>${atual?`<button type="button" class="btn bad" id="ffRm">Remover foto</button>`:""}<span class="spacer"></span><button type="button" class="btn primary" id="ffEsc">${atual?"Trocar foto":"Escolher foto"}</button></div>`);
+   <div class="row"><button type="button" class="btn" data-fechar>Fechar</button>${atual?`<button type="button" class="btn bad" id="ffRm">Remover foto</button>`:""}<span class="spacer"></span><button type="button" class="btn" id="ffEsc">🖼 Escolher arquivo</button><button type="button" class="btn primary" id="ffCamBtn">📷 Tirar foto</button></div>`);
   if(atual&&!S.arquivos[atual])baixarArq(atual).then(()=>{if(!$("modal").hidden&&$("ffArq"))formFoto(tipo,id,titulo,atual);});
   const enviarFoto=async corpo=>{$("ffMsg").textContent="Enviando…";$("ffMsg").className="msg";$("ffEsc").disabled=true;
     const r=await chamar("fotoCadastro",{tipo,id,...corpo}).catch(err=>({ok:false,erro:err.message}));
     if(!r.ok){$("ffMsg").textContent=r.erro||"Não consegui salvar.";$("ffMsg").className="msg err";$("ffEsc").disabled=false;return;}
     if(corpo.foto&&r.foto)S.arquivos[r.foto]="data:image/jpeg;base64,"+corpo.foto;
     fecharModal();toast(corpo.remover?"Foto removida.":"Foto de cadastro salva.");await carregar();};
-  $("ffEsc").onclick=()=>$("ffArq").click();
+  $("ffEsc").onclick=()=>$("ffArq").click();$("ffCamBtn").onclick=()=>$("ffCam").click();
+  $("ffCam").onchange=e=>$("ffArq").onchange(e);
   $("ffArq").onchange=async e=>{const f=e.target.files[0];if(!f)return;try{const img=await encolher(f,1280,.8);await enviarFoto({foto:img.split(",")[1]});}catch(err){$("ffMsg").textContent="Não consegui usar esta imagem.";$("ffMsg").className="msg err";}};
   const rm=$("ffRm");if(rm)rm.onclick=()=>{if(rm.dataset.c!=="1"){rm.dataset.c="1";rm.textContent="Confirmar remoção";return;}enviarFoto({remover:true});};
 }
@@ -320,7 +426,11 @@ function vPecas(){
   const p=S.uOpen&&pecaBy(S.uOpen);const kitOpts=sel=>D.kits.map(k=>`<option value="${k.id}" ${sel===k.id?"selected":""}>${esc(k.nome)}</option>`).join("");
   let max=0;D.pecas.forEach(x=>{const m=/^FER-(\d+)$/.exec(x.codigo);if(m)max=Math.max(max,+m[1]);});
   return `<div class="stack"><div><h2>Códigos e etiquetas</h2><p class="lead">Cada peça física tem um código sequencial (FER-0001, FER-0002…) que não muda quando ela troca de kit. ${D.pecas.length} peças cadastradas.</p></div>
-  <div class="card stack"><h3>Consultar uma peça</h3><div class="scanbar"><input id="uCode" placeholder="Código (ex.: FER-0012) ou nº de patrimônio" autocomplete="off" autocapitalize="characters"><button type="button" class="btn primary" id="uGo">Consultar</button></div>
+  <div class="grid2">
+   <div class="card stack"><h3>📱 Cadastro pelo celular</h3><p class="mini" style="margin:0">Abra este painel no celular, leia a etiqueta QR de cada peça com a câmera e cadastre o nº de patrimônio (digitado ou lido da plaqueta) e a foto da peça, uma depois da outra.</p><div class="row"><button type="button" class="btn primary" id="ccAbrir">📷 Começar pelo celular</button></div></div>
+   <div class="card stack"><h3>Patrimônio de todas as peças</h3><p class="mini" style="margin:0"><b>${D.pecas.filter(p=>p.patrimonio).length} de ${D.pecas.filter(p=>p.situacao!=="baixada").length}</b> peças com nº de patrimônio. Cadastre todos numa tela só, filtrando por kit ou só as que faltam.</p><div class="row"><button type="button" class="btn" id="ptAbrir">🏷 Cadastrar patrimônio de todas</button></div></div>
+  </div>
+  <div class="card stack"><h3>Consultar uma peça</h3><div class="scanbar"><input id="uCode" placeholder="Código (ex.: FER-0012) ou nº de patrimônio" autocomplete="off" autocapitalize="characters"><button type="button" class="btn" id="uLer" title="Ler a etiqueta com a câmera">📷</button><button type="button" class="btn primary" id="uGo">Consultar</button></div>
    ${p?fichaHtml(p,LR):S.uOpen?`<div class="banner">${esc(S.uOpen)} não foi encontrado (nem como código, nem como nº de patrimônio).</div>`:""}</div>
   <div class="card stack"><h3>Imprimir etiquetas</h3>
    <p class="mini" style="margin:0">Folha A4 com 33 etiquetas de 63,5 × 25,4 mm (3 colunas × 11 linhas), como Pimaco A4356 / A4256. Imprima em tamanho real (100%). Peças com nº de patrimônio cadastrado saem com o número na etiqueta.</p>
@@ -401,6 +511,8 @@ after.pecas=()=>{
       catch(err){$("sitMsg").className="msg err";$("sitMsg").textContent=err.message;sg.disabled=false;}};}
   const fps=$("fPatSave");if(fps)fps.onclick=async()=>{fps.disabled=true;await acao("pecaSalvar",{peca:{codigo:fps.dataset.cod,patrimonio:$("fPat").value.trim()}},"Patrimônio salvo.");fps.disabled=false;};
   $("uGo").onclick=go;carregarPendentes();
+  $("uLer").onclick=async()=>{const x=await lerCodigo("Leia a etiqueta da peça","qr");if(x){$("uCode").value=normCode(x);go();}};
+  $("ccAbrir").onclick=()=>cadastroCelular();$("ptAbrir").onclick=formPatrimonioTodas;
   const fpz=document.querySelector("[data-fotopeca]");if(fpz){const u=pecaBy(fpz.dataset.fotopeca);fpz.onclick=()=>formFoto("peca",u.codigo,u.codigo,u.foto);}
   const ftz=document.querySelector("[data-fototool]");if(ftz){const t=toolById(ftz.dataset.fototool);ftz.onclick=()=>formFoto("ferramenta",t.id,t.desc,t.foto);}$("uCode").addEventListener("keydown",e=>{if(e.key==="Enter"){e.preventDefault();go();}});
   const info=()=>{const n=etiquetasSel().length,st=Math.max(1,Math.min(33,+$("lbStart").value||1)),f=Math.ceil((n+st-1)/33)||0;$("lbInfo").textContent=`${n} etiqueta${n===1?"":"s"} · ${f} folha${f===1?"":"s"}`;};
