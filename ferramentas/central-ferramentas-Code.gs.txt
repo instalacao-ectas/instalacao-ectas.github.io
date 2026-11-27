@@ -33,8 +33,8 @@ const T = {
     tit: ["ID", "Item", "Descrição", "Qtd fixa", "Grupo (permanente, almox ou individual)", "Ativa", "Foto de cadastro (arquivo)", "Exige foto na conferência"] },
   kits: { aba: "Kits", cols: ["id", "nome", "responsavel", "local", "tecnicos", "ordem", "ativo"],
     tit: ["ID", "Kit", "Responsável", "Local / equipe", "Técnicos autorizados (logins; vazio = ninguém)", "Ordem", "Ativo"] },
-  pecas: { aba: "Peças", cols: ["codigo", "ferramenta", "kit", "situacao", "criado_em", "obs", "foto"],
-    tit: ["Código", "ID ferramenta", "ID kit", "Situação (ativa, manutencao, baixada)", "Cadastrada em", "Observação", "Foto de cadastro (arquivo)"] },
+  pecas: { aba: "Peças", cols: ["codigo", "ferramenta", "kit", "situacao", "criado_em", "obs", "foto", "patrimonio"],
+    tit: ["Código", "ID ferramenta", "ID kit", "Situação (ativa, manutencao, baixada)", "Cadastrada em", "Observação", "Foto de cadastro (arquivo)", "Nº de patrimônio"] },
   tecnicos: { aba: "Técnicos", cols: ["login", "nome", "ativo", "hash", "sal", "versao"],
     tit: ["Usuário (login)", "Nome", "Ativo", "Senha (protegida)", "Sal", "Versão"] },
   conf: { aba: "Conferências", cols: ["uid", "recebido_em", "criado_em", "kit", "kit_nome", "tipo", "tecnico", "login", "local",
@@ -145,7 +145,8 @@ function kits_() {
 }
 function pecas_() {
   return ler_("pecas").map(p => ({ codigo: String(p.codigo).trim(), ferramenta: String(p.ferramenta), kit: String(p.kit),
-    situacao: String(p.situacao || "ativa").trim().toLowerCase(), criado_em: String(p.criado_em || ""), obs: String(p.obs || ""), foto: String(p.foto || "") }));
+    situacao: String(p.situacao || "ativa").trim().toLowerCase(), criado_em: String(p.criado_em || ""), obs: String(p.obs || ""), foto: String(p.foto || ""),
+    patrimonio: String(p.patrimonio == null ? "" : p.patrimonio).trim() }));
 }
 function conf_(c) {
   return { uid: String(c.uid), recebido_em: String(c.recebido_em), criado_em: String(c.criado_em), kit: String(c.kit), kit_nome: String(c.kit_nome),
@@ -475,6 +476,7 @@ function acaoSupervisor_(b) {
       case "ferramentaExcluir": return ferramentaExcluir_(String(b.id || ""));
       case "pecasCriar": return pecasCriar_(b);
       case "pecaSalvar": return pecaSalvar_(b.peca || {});
+      case "patrimoniosSalvar": return patrimoniosSalvar_(b.lista);
       case "fotoCadastro": return fotoCadastro_(b);
       case "configSalvar": return salvarConfig_(b.config || {});
       case "emailTeste": return emailDiario(true);
@@ -544,14 +546,45 @@ function proximosCodigos_(n) {
   const out = []; for (let i = 1; i <= n; i++) out.push("FER-" + String(max + i).padStart(4, "0"));
   return out;
 }
+// nº de patrimônio: compara sem espaços, pontos ou traços e sem diferença de maiúsculas
+const normPat_ = v => String(v == null ? "" : v).toUpperCase().replace(/[\s.\-\/]/g, "");
+// grava vários números de patrimônio de uma vez (lista de { codigo, patrimonio })
+function patrimoniosSalvar_(lista) {
+  if (!Array.isArray(lista) || !lista.length) return { ok: false, erro: "Nada para salvar." };
+  const linhas = ler_("pecas"), porCod = {};
+  linhas.forEach(x => porCod[String(x.codigo)] = x);
+  const novo = {};
+  for (const it of lista.slice(0, 500)) {
+    const c = String(it && it.codigo || "");
+    if (!porCod[c]) return { ok: false, erro: "Peça " + c + " não encontrada." };
+    novo[c] = limpa_(it.patrimonio, 40).trim();
+  }
+  // não deixa o mesmo número em duas peças
+  const usado = {};
+  for (const x of linhas) {
+    const c = String(x.codigo), pat = c in novo ? novo[c] : String(x.patrimonio == null ? "" : x.patrimonio).trim();
+    const n = normPat_(pat);
+    if (!n) continue;
+    if (usado[n]) return { ok: false, erro: "O patrimônio " + pat + " aparece em duas peças: " + usado[n] + " e " + c + "." };
+    usado[n] = c;
+  }
+  let alteradas = 0;
+  Object.keys(novo).forEach(c => {
+    const x = porCod[c];
+    if (String(x.patrimonio == null ? "" : x.patrimonio).trim() === novo[c]) return;
+    x.patrimonio = novo[c]; gravar_("pecas", x, x._linha); alteradas++;
+  });
+  return { ok: true, alteradas: alteradas };
+}
+
 function pecasCriar_(b) {
   const n = Math.max(1, Math.min(100, Number(b.qtd) || 1));
   if (!ferramentas_().some(f => f.id === String(b.ferramenta))) return { ok: false, erro: "Ferramenta não encontrada." };
   if (!kits_().some(k => k.id === String(b.kit))) return { ok: false, erro: "Kit não encontrado." };
   const codigos = proximosCodigos_(n), quando = agora_();
   const sh = aba_("pecas"), ini = sh.getLastRow() + 1;
-  const linhas = codigos.map(c => [c, String(b.ferramenta), String(b.kit), "ativa", quando, "", ""]);
-  bloco_(sh, ini, linhas.length, 7).setNumberFormat("@").setValues(linhas);
+  const linhas = codigos.map(c => [c, String(b.ferramenta), String(b.kit), "ativa", quando, "", "", ""]);
+  bloco_(sh, ini, linhas.length, 8).setNumberFormat("@").setValues(linhas);
   return { ok: true, codigos: codigos };
 }
 function pecaSalvar_(p) {
@@ -560,6 +593,12 @@ function pecaSalvar_(p) {
   if (p.kit !== undefined) { if (!kits_().some(k => k.id === String(p.kit))) return { ok: false, erro: "Kit não encontrado." }; atual.kit = String(p.kit); }
   if (p.situacao !== undefined) { if (["ativa", "manutencao", "baixada"].indexOf(p.situacao) < 0) return { ok: false, erro: "Situação inválida." }; atual.situacao = p.situacao; }
   if (p.obs !== undefined) atual.obs = limpa_(p.obs, 300);
+  if (p.patrimonio !== undefined) {
+    const pat = limpa_(p.patrimonio, 40).trim();
+    const dono = pat && pecas_().find(x => x.codigo !== String(atual.codigo) && normPat_(x.patrimonio) === normPat_(pat));
+    if (dono) return { ok: false, erro: "O patrimônio " + pat + " já está cadastrado na peça " + dono.codigo + "." };
+    atual.patrimonio = pat;
+  }
   gravar_("pecas", atual, atual._linha);
   return { ok: true };
 }
