@@ -1,12 +1,12 @@
 (function(){
 "use strict";
-const VERSAO="23/11/2026 17:00";
+const VERSAO="27/11/2026 12:00";
 const $=id=>document.getElementById(id);
 const CENTRAL=window.CENTRAL_FERRAMENTAS||{};
 const temCentral=()=>!!(CENTRAL.url&&CENTRAL.chave);
 /* se o site foi atualizado e esta página ainda é a versão anterior guardada no navegador, recarrega sozinha uma vez */
 (async()=>{try{const h=await fetch("index.html",{cache:"no-store"}).then(r=>r.text());const m=h.match(/app\.js\?v=(\d+)/);
-  if(m&&m[1]!=="5"){const k="fer-recarregou-app-"+m[1];if(!sessionStorage.getItem(k)){sessionStorage.setItem(k,"1");location.reload();}}}catch(e){}})();
+  if(m&&m[1]!=="6"){const k="fer-recarregou-app-"+m[1];if(!sessionStorage.getItem(k)){sessionStorage.setItem(k,"1");location.reload();}}}catch(e){}})();
 
 const TIPOS_CONF=["Retirada do kit","Devolução do kit","Conferência periódica"];
 const CONDS={ok:"Conforme",dan:"Danificada",man:"Em manutenção",falta:"Faltando"};
@@ -316,7 +316,7 @@ function unitBlock(r,d){
     if(u.situacao==="manutencao")return `<div class="unit off"><code>${u.codigo}</code><span>Em manutenção</span></div>`;
     if(!st)return `<div class="unit wait"><code>${u.codigo}</code><span>Aguardando leitura</span></div>`;
     const pf=st==="dan"||t.exigeFoto;
-    return `<div class="unit ${st==="dan"?"dan":"ok"}${pf&&!(d.fotos||{})[u.codigo]?" semfoto":""}" data-u="${u.codigo}"><code>${u.codigo}</code><select data-ucond aria-label="Estado de ${u.codigo}"><option value="ok" ${st==="ok"?"selected":""}>Lida · conforme</option><option value="dan" ${st==="dan"?"selected":""}>Lida · danificada</option></select>${pf?fotoCtl(d,u.codigo,st==="dan"?"danificada":"exige"):""}${u.foto?refFotoBtn(t,u):""}<button type="button" class="linkbtn" data-undo>desfazer</button></div>`;}).join("")}</div></div>`;
+    return `<div class="unit ${st==="dan"?"dan":"ok"}${pf&&!(d.fotos||{})[u.codigo]?" semfoto":""}" data-u="${u.codigo}"><code>${u.codigo}</code>${u.patrimonio?`<span class="mini" title="Nº de patrimônio">Pat. ${esc(u.patrimonio)}</span>`:""}<select data-ucond aria-label="Estado de ${u.codigo}"><option value="ok" ${st==="ok"?"selected":""}>Lida · conforme</option><option value="dan" ${st==="dan"?"selected":""}>Lida · danificada</option></select>${pf?fotoCtl(d,u.codigo,st==="dan"?"danificada":"exige"):""}${u.foto?refFotoBtn(t,u):""}<button type="button" class="linkbtn" data-undo>desfazer</button></div>`;}).join("")}</div></div>`;
 }
 function itemRow(t,it){
   const p=it.q<t.qtd||it.s!=="ok",d=S.draft,pf=it.q>0&&(it.s==="dan"||t.exigeFoto);

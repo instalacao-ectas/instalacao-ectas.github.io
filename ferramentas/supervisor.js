@@ -16,7 +16,7 @@ const GRUPOS={permanente:"Kit (permanente)",almox:"Almoxarifado",individual:"Ind
 
 /* se o site foi atualizado e esta página ainda é a versão anterior guardada no navegador, recarrega sozinha uma vez */
 (async()=>{try{const h=await fetch("supervisor.html",{cache:"no-store"}).then(r=>r.text());const m=h.match(/supervisor\.js\?v=(\d+)/);
-  if(m&&m[1]!=="5"){const k="fer-recarregou-sup-"+m[1];if(!sessionStorage.getItem(k)){sessionStorage.setItem(k,"1");location.reload();}}}catch(e){}})();
+  if(m&&m[1]!=="6"){const k="fer-recarregou-sup-"+m[1];if(!sessionStorage.getItem(k)){sessionStorage.setItem(k,"1");location.reload();}}}catch(e){}})();
 let senha="",D=null;
 const S={tab:"painel",apF:"pendente",ocF:"abertas",uq:"",uKit:"",uOpen:null,arquivos:{},fotosConf:{}};
 
@@ -168,6 +168,27 @@ const fotoCadastroDe=(toolId,codigo)=>{const u=codigo&&pecaBy(codigo),t=toolById
 document.addEventListener("click",e=>{const z=e.target.closest("[data-zoom]");if(!z||z.closest("#modal"))return;
   abrirModal(`<div class="row"><b>Foto</b><span class="spacer"></span><button type="button" class="btn small" data-fechar>Fechar</button></div><img src="${S.arquivos[z.dataset.zoom]}" alt="" style="width:100%;border-radius:10px">`);});
 // janela para trocar a foto de cadastro de uma ferramenta (tipo "ferramenta") ou peça (tipo "peca")
+// área de cadastro do nº de patrimônio de todas as peças de uma ferramenta
+function formPatrimonio(toolId){
+  const t=toolById(toolId),ps=D.pecas.filter(p=>p.ferramenta===toolId&&p.situacao!=="baixada").sort((a,b)=>(kitName(a.kit)+a.codigo).localeCompare(kitName(b.kit)+b.codigo));
+  abrirModal(`<h3>Nº de patrimônio · ${esc(t?t.desc:"")}</h3>
+   <p class="mini" style="margin:0">Digite o número de patrimônio de cada peça (a etiqueta de patrimônio da empresa). Deixe em branco se a peça não tiver. O mesmo número não pode estar em duas peças.</p>
+   <div class="tablebox" style="max-height:55vh;overflow:auto"><table><thead><tr><th>Código</th><th>Kit</th><th>Situação</th><th>Nº de patrimônio</th></tr></thead><tbody>
+   ${ps.map(p=>{const [sl,sc]=SIT[p.situacao]||SIT.ativa;return `<tr><td><code class="k">${p.codigo}</code></td><td>${esc(kitName(p.kit))}</td><td><span class="chip ${sc}">${sl}</span></td><td><input data-patc="${p.codigo}" value="${esc(p.patrimonio||"")}" placeholder="—" autocomplete="off" style="min-width:140px"></td></tr>`;}).join("")}
+   </tbody></table></div>
+   <div class="msg" id="patMsg" role="status"></div>
+   <div class="row"><button type="button" class="btn" data-fechar>Cancelar</button><span class="spacer"></span><button type="button" class="btn primary" id="patSalvar">Salvar patrimônios</button></div>`);
+  const ins=[...document.querySelectorAll("#modal [data-patc]")];if(ins[0])ins[0].focus();
+  ins.forEach((i,n)=>i.addEventListener("keydown",e=>{if(e.key==="Enter"){e.preventDefault();(ins[n+1]||$("patSalvar")).focus();}}));
+  $("patSalvar").onclick=async()=>{
+    const lista=ins.map(i=>({codigo:i.dataset.patc,patrimonio:i.value.trim()}));
+    const np=x=>x.toUpperCase().replace(/[\s.\-\/]/g,"");const vistos={};
+    for(const x of lista){const n=np(x.patrimonio);if(!n)continue;if(vistos[n]){$("patMsg").textContent=`O patrimônio ${x.patrimonio} está repetido (${vistos[n]} e ${x.codigo}).`;$("patMsg").className="msg err";return;}vistos[n]=x.codigo;}
+    const b=$("patSalvar");b.disabled=true;b.textContent="Salvando…";
+    const r=await chamar("patrimoniosSalvar",{lista}).catch(err=>({ok:false,erro:err.message}));
+    if(!r.ok){$("patMsg").textContent=r.erro||"Não consegui salvar.";$("patMsg").className="msg err";b.disabled=false;b.textContent="Salvar patrimônios";return;}
+    fecharModal();toast(r.alteradas?`${r.alteradas} patrimônio${r.alteradas>1?"s":""} salvo${r.alteradas>1?"s":""}.`:"Nada mudou.");await carregar();};
+}
 function formFoto(tipo,id,titulo,atual){
   abrirModal(`<h3>Foto de cadastro · ${esc(titulo)}</h3>
    <div class="fotopar" style="width:100%"><div class="ph" style="aspect-ratio:4/3">${atual?arqImg(atual,titulo):`<span>Ainda sem foto de cadastro.</span>`}</div></div>
@@ -266,8 +287,8 @@ function vPecas(){
   const p=S.uOpen&&pecaBy(S.uOpen);const kitOpts=sel=>D.kits.map(k=>`<option value="${k.id}" ${sel===k.id?"selected":""}>${esc(k.nome)}</option>`).join("");
   let max=0;D.pecas.forEach(x=>{const m=/^FER-(\d+)$/.exec(x.codigo);if(m)max=Math.max(max,+m[1]);});
   return `<div class="stack"><div><h2>Códigos e etiquetas</h2><p class="lead">Cada peça física tem um código sequencial (FER-0001, FER-0002…) que não muda quando ela troca de kit. ${D.pecas.length} peças cadastradas.</p></div>
-  <div class="card stack"><h3>Consultar uma peça</h3><div class="scanbar"><input id="uCode" placeholder="Digite o código (ex.: FER-0012)" autocomplete="off" autocapitalize="characters"><button type="button" class="btn primary" id="uGo">Consultar</button></div>
-   ${p?fichaHtml(p,LR):S.uOpen?`<div class="banner">Código ${esc(S.uOpen)} não está cadastrado.</div>`:""}</div>
+  <div class="card stack"><h3>Consultar uma peça</h3><div class="scanbar"><input id="uCode" placeholder="Código (ex.: FER-0012) ou nº de patrimônio" autocomplete="off" autocapitalize="characters"><button type="button" class="btn primary" id="uGo">Consultar</button></div>
+   ${p?fichaHtml(p,LR):S.uOpen?`<div class="banner">${esc(S.uOpen)} não foi encontrado (nem como código, nem como nº de patrimônio).</div>`:""}</div>
   <div class="card stack"><h3>Imprimir etiquetas</h3>
    <p class="mini" style="margin:0">Folha A4 com 33 etiquetas de 63,5 × 25,4 mm (3 colunas × 11 linhas), como Pimaco A4356 / A4256. Imprima em tamanho real (100%).</p>
    <div class="fields">
@@ -285,9 +306,10 @@ function vPecas(){
    <div class="row"><span class="mini">Próximo código: <code class="k">FER-${String(max+1).padStart(4,"0")}</code></span><span class="spacer"></span><button type="button" class="btn" id="nuGo">Cadastrar e gerar códigos</button></div></div>
   <div class="stack"><div class="row"><h3>Peças cadastradas</h3><span class="spacer"></span>
    <select id="uKitF" style="width:auto"><option value="">Todos os kits</option>${D.kits.map(k=>`<option value="${k.id}" ${kf===k.id?"selected":""}>${esc(k.nome)}</option>`).join("")}</select>
-   <input id="uSearch" placeholder="Filtrar por código ou nome" style="width:auto;min-width:200px" value="${esc(S.uq)}"></div>
-  <div class="tablebox"><table><thead><tr><th>Código</th><th>Ferramenta</th><th>Kit</th><th>Situação</th><th>Última leitura</th><th></th></tr></thead><tbody id="uRows">
-  ${list.map(u=>{const t=toolById(u.ferramenta);return `<tr data-u="${u.codigo}" data-q="${esc((u.codigo+" "+(t?t.desc:"")).toLowerCase())}"><td><code class="k">${u.codigo}</code></td><td style="min-width:200px">${esc(t?t.desc:"Ferramenta removida")}</td>
+   <input id="uSearch" placeholder="Filtrar por código, nome ou patrimônio" style="width:auto;min-width:200px" value="${esc(S.uq)}"></div>
+  <div class="tablebox"><table><thead><tr><th>Código</th><th>Ferramenta</th><th>Nº patrimônio</th><th>Kit</th><th>Situação</th><th>Última leitura</th><th></th></tr></thead><tbody id="uRows">
+  ${list.map(u=>{const t=toolById(u.ferramenta);return `<tr data-u="${u.codigo}" data-q="${esc((u.codigo+" "+(t?t.desc:"")+" "+(u.patrimonio||"")).toLowerCase())}"><td><code class="k">${u.codigo}</code></td><td style="min-width:200px">${esc(t?t.desc:"Ferramenta removida")}</td>
+   <td style="width:150px"><input data-f="patrimonio" value="${esc(u.patrimonio||"")}" placeholder="—" aria-label="Nº de patrimônio de ${u.codigo}" autocomplete="off"></td>
    <td><select data-f="kit" style="width:auto">${kitOpts(u.kit)}</select></td>
    <td><select data-f="situacao" style="width:auto">${Object.entries(SIT).map(([k,[l]])=>`<option value="${k}" ${u.situacao===k?"selected":""}>${l}</option>`).join("")}</select></td>
    <td class="mini">${LR[u.codigo]?agoTxt(LR[u.codigo]):"nunca"}</td>
@@ -300,6 +322,7 @@ function fichaHtml(u,LR){
   return `<div class="ficha"><div class="row"><code class="k" style="font-size:16px">${u.codigo}</code><b>${esc(t?t.desc:"")}</b><span class="spacer"></span><span class="chip ${sc}">${sl}</span></div>
   <div class="row" style="align-items:flex-start;margin:8px 0"><div class="fotopar" style="width:170px"><div class="ph">${fp?arqImg(fp,"Foto de cadastro"):`<span>Sem foto de cadastro</span>`}</div><span class="mini">${u.foto?"Foto desta peça":fp?"Foto da ferramenta (modelo)":"Sem foto"}</span></div>
    <div class="stack" style="gap:6px"><button type="button" class="btn small" data-fotopeca="${u.codigo}">${u.foto?"Trocar foto desta peça":"Adicionar foto desta peça"}</button>${t?`<button type="button" class="btn small" data-fototool="${t.id}">${t.foto?"Trocar":"Adicionar"} foto da ferramenta</button>`:""}</div></div>
+  <div class="row" style="margin:4px 0 8px"><label class="field" style="max-width:260px">Nº de patrimônio<input id="fPat" value="${esc(u.patrimonio||"")}" placeholder="Ainda sem patrimônio" autocomplete="off"></label><button type="button" class="btn small" id="fPatSave" data-cod="${u.codigo}" style="align-self:flex-end">Salvar patrimônio</button></div>
   <div class="mini">${esc(kitName(u.kit))}${k&&k.responsavel?" · responsável: "+esc(k.responsavel):""} · última leitura: ${LR[u.codigo]?fmtDate(LR[u.codigo]):"nunca lida"}</div>
   ${h.length?`<ul>${h.map(x=>`<li><span class="mini">${fmtDate(x.em)}</span> ${x.h}</li>`).join("")}</ul>`:`<div class="mini" style="margin-top:6px">Sem registros ainda.</div>`}</div>`;
 }
@@ -324,7 +347,10 @@ async function pdfEtiquetas(units,start){
   return doc.output("blob");
 }
 after.pecas=()=>{
-  const go=()=>{const v=$("uCode").value.trim();if(!v)return;S.uOpen=normCode(v);render();};
+  const go=()=>{const v=$("uCode").value.trim();if(!v)return;
+    const np=x=>String(x||"").toUpperCase().replace(/[\s.\-\/]/g,"");const porPat=D.pecas.find(p=>p.patrimonio&&np(p.patrimonio)===np(v));
+    S.uOpen=pecaBy(normCode(v))?normCode(v):porPat?porPat.codigo:normCode(v);render();};
+  const fps=$("fPatSave");if(fps)fps.onclick=async()=>{fps.disabled=true;await acao("pecaSalvar",{peca:{codigo:fps.dataset.cod,patrimonio:$("fPat").value.trim()}},"Patrimônio salvo.");fps.disabled=false;};
   $("uGo").onclick=go;carregarPendentes();
   const fpz=document.querySelector("[data-fotopeca]");if(fpz){const u=pecaBy(fpz.dataset.fotopeca);fpz.onclick=()=>formFoto("peca",u.codigo,u.codigo,u.foto);}
   const ftz=document.querySelector("[data-fototool]");if(ftz){const t=toolById(ftz.dataset.fototool);ftz.onclick=()=>formFoto("ferramenta",t.id,t.desc,t.foto);}$("uCode").addEventListener("keydown",e=>{if(e.key==="Enter"){e.preventDefault();go();}});
@@ -348,7 +374,7 @@ after.pecas=()=>{
 function vCadastro(){
   const ts=D.tecnicos;
   const tools=D.ferramentas.slice().sort((a,b)=>(a.grupo>b.grupo?1:a.grupo<b.grupo?-1:(a.item||999)-(b.item||999)));
-  return `<div class="stack"><div><h2>Cadastro</h2><p class="lead">Técnicos, kits e a lista padrão de ferramentas. Clique no quadrado da coluna Foto para cadastrar a foto de cada ferramenta; marque "Exige foto" nas que o técnico deve fotografar em toda conferência e clique em Salvar na linha.</p></div>
+  return `<div class="stack"><div><h2>Cadastro</h2><p class="lead">Técnicos, kits e a lista padrão de ferramentas. Na coluna Patrimônio (🏷) você cadastra o número de patrimônio de cada peça. Clique no quadrado da coluna Foto para cadastrar a foto de cada ferramenta; marque "Exige foto" nas que o técnico deve fotografar em toda conferência e clique em Salvar na linha.</p></div>
   <div class="card stack"><div class="row"><h3>Técnicos (usuários do app)</h3><span class="spacer"></span><a class="btn small" href="../supervisor.html">Cadastrar no Diário de Obra</a></div>
    <p class="mini" style="margin:0">Os técnicos entram com o mesmo usuário e senha do Diário de Obra. Para cadastrar, trocar senha ou desativar, use o Painel do Diário de Obra: vale para os dois aplicativos.</p>
    ${ts.length?`<div class="tablebox"><table><thead><tr><th>Usuário</th><th>Nome</th><th>Situação</th><th></th></tr></thead><tbody id="tecRows">${ts.map(t=>`<tr data-login="${esc(t.login)}"><td><code class="k">${esc(t.login)}</code></td><td>${esc(t.nome)}</td><td>${t.ativo?`<span class="chip c-ok">Ativo</span>`:`<span class="chip c-mute">Desativado</span>`}</td><td></td></tr>`).join("")}</tbody></table></div>`:`<div class="empty">Nenhum técnico cadastrado no Diário de Obra.</div>`}</div>
@@ -357,10 +383,11 @@ function vCadastro(){
    ${D.kits.map(k=>`<tr data-k="${k.id}"><td><b>${esc(k.nome)}</b></td><td>${esc(k.responsavel||"—")}</td><td>${esc(k.local||"—")}</td><td class="mini">${k.tecnicos.length?esc(k.tecnicos.map(l=>(ts.find(t=>t.login===l)||{}).nome||l).join(", ")):`<span style="color:var(--bad)">Nenhum (ninguém acessa)</span>`}</td><td>${k.ativo?`<span class="chip c-ok">Ativo</span>`:`<span class="chip c-mute">Inativo</span>`}</td><td><button type="button" class="btn small" data-edkit>Editar</button></td></tr>`).join("")}
    </tbody></table></div></div>
   <div class="card stack"><div class="row"><h3>Ferramentas (${D.ferramentas.length})</h3><span class="spacer"></span><button type="button" class="btn small" id="addTool">Nova ferramenta</button></div>
-   <div class="tablebox"><table><thead><tr><th>Foto</th><th class="num">Item</th><th>Descrição</th><th class="num">Qtd</th><th>Grupo</th><th>Situação</th><th title="O técnico precisa fotografar cada peça desta ferramenta na conferência">Exige foto</th><th></th></tr></thead><tbody id="toolRows">
+   <div class="tablebox"><table><thead><tr><th>Foto</th><th class="num">Item</th><th>Descrição</th><th class="num">Qtd</th><th>Grupo</th><th>Situação</th><th title="Número de patrimônio de cada peça desta ferramenta">Patrimônio</th><th title="O técnico precisa fotografar cada peça desta ferramenta na conferência">Exige foto</th><th></th></tr></thead><tbody id="toolRows">
    ${tools.map(t=>`<tr data-t="${t.id}"><td style="width:56px"><button type="button" class="cadfoto" data-ftool title="${t.foto?"Ver ou trocar a foto":"Adicionar foto de cadastro"}" aria-label="Foto de ${esc(t.desc)}">${t.foto?(S.arquivos[t.foto]&&S.arquivos[t.foto]!=="x"?`<img src="${S.arquivos[t.foto]}" alt="">`:"🖼"):"＋"}</button></td><td style="width:74px"><input data-f="item" type="number" value="${t.item??""}"></td><td style="min-width:240px"><input data-f="desc" value="${esc(t.desc)}"></td><td style="width:82px"><input data-f="qtd" type="number" min="0" value="${t.qtd}"></td>
     <td style="width:170px"><select data-f="grupo">${Object.entries(GRUPOS).map(([k,l])=>`<option value="${k}" ${t.grupo===k?"selected":""}>${l}</option>`).join("")}</select></td>
     <td style="width:130px"><select data-f="ativa"><option value="1" ${t.ativa?"selected":""}>Ativa</option><option value="0" ${!t.ativa?"selected":""}>Inativa</option></select></td>
+    <td style="width:110px">${(()=>{const ps=D.pecas.filter(p=>p.ferramenta===t.id&&p.situacao!=="baixada"),c=ps.filter(p=>p.patrimonio).length;return ps.length?`<button type="button" class="btn small" data-pat title="Cadastrar o nº de patrimônio das peças">🏷 ${c}/${ps.length}</button>`:`<span class="mini">sem peças</span>`;})()}</td>
     <td style="width:90px;text-align:center"><input type="checkbox" data-exige ${t.exigeFoto?"checked":""} aria-label="Exige foto na conferência" style="width:20px;height:20px"></td>
     <td style="white-space:nowrap"><button type="button" class="btn small" data-savet>Salvar</button> <button type="button" class="btn small bad" data-delt>Excluir</button></td></tr>`).join("")}
    </tbody></table></div></div></div>`;
@@ -403,6 +430,7 @@ after.cadastro=()=>{
   $("addTool").onclick=()=>{const next=Math.max(0,...perm().map(t=>t.item||0))+1;acao("ferramentaSalvar",{ferramenta:{item:next,desc:"Nova ferramenta",qtd:1,grupo:"permanente"}},"Ferramenta adicionada no fim da lista. Edite a descrição e salve.");};
   $("toolRows").addEventListener("click",async e=>{const row=e.target.closest("tr[data-t]");if(!row)return;
     if(e.target.closest("[data-ftool]")){const t=toolById(row.dataset.t);formFoto("ferramenta",t.id,t.desc,t.foto);return;}
+    if(e.target.closest("[data-pat]")){formPatrimonio(row.dataset.t);return;}
     if(e.target.closest("[data-savet]")){const v={id:row.dataset.t};row.querySelectorAll("[data-f]").forEach(i=>v[i.dataset.f]=i.value.trim());v.ativa=v.ativa==="1";v.exigeFoto=row.querySelector("[data-exige]").checked;v.item=v.item===""?"":Number(v.item);v.qtd=Math.max(0,Number(v.qtd)||0);
       if(!v.desc)return toast("Informe a descrição.");await acao("ferramentaSalvar",{ferramenta:v},"Ferramenta salva.");}
     const del=e.target.closest("[data-delt]");if(del){if(del.dataset.c!=="1"){del.dataset.c="1";del.textContent="Confirmar exclusão";return;}await acao("ferramentaExcluir",{id:row.dataset.t},"Ferramenta excluída.");}});
