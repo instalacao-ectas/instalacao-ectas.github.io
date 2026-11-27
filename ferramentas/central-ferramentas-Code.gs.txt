@@ -45,7 +45,9 @@ const T = {
   oc: { aba: "Ocorrências", cols: ["uid", "recebido_em", "criado_em", "kit", "kit_nome", "tipo", "ferramenta", "ferramenta_desc", "codigo",
       "qtd", "descricao", "tecnico", "login", "foto", "status", "comentario", "atualizado_em"],
     tit: ["Código interno", "Recebida em", "Feita em", "ID kit", "Kit", "Tipo", "ID ferramenta", "Ferramenta", "Código da peça",
-      "Quantidade", "Descrição", "Técnico", "Usuário", "Foto (arquivo)", "Situação", "Providência do supervisor", "Atualizada em"] }
+      "Quantidade", "Descrição", "Técnico", "Usuário", "Foto (arquivo)", "Situação", "Providência do supervisor", "Atualizada em"] },
+  sit: { aba: "Situação das peças", cols: ["uid", "em", "codigo", "ferramenta", "situacao_antes", "situacao", "obs", "foto"],
+    tit: ["Código interno", "Registrada em", "Código da peça", "ID ferramenta", "Situação anterior", "Nova situação", "Observação", "Foto do estado (arquivo)"] }
 };
 
 /* ---------- carga inicial (planilha de ferramentas de 12/11/2026) ---------- */
@@ -79,7 +81,7 @@ function aba_(t) {
     sh.getRange(1, 1, Math.max(sh.getMaxRows(), 2), def.cols.length).setNumberFormat("@");
     if (t === "tecnicos") sh.hideColumns(4, 3);
     if (t === "conf") { sh.hideColumns(1); sh.hideColumns(14, 2); sh.hideColumns(21); }
-    if (t === "oc") sh.hideColumns(1);
+    if (t === "oc" || t === "sit") sh.hideColumns(1);
   } else if (!CAB_OK_[t]) {
     // aba criada antes de colunas novas: completa o cabeçalho
     const n = def.tit.length, atual = sh.getRange(1, 1, 1, n).getValues()[0];
@@ -477,6 +479,7 @@ function acaoSupervisor_(b) {
       case "pecasCriar": return pecasCriar_(b);
       case "pecaSalvar": return pecaSalvar_(b.peca || {});
       case "patrimoniosSalvar": return patrimoniosSalvar_(b.lista);
+      case "situacaoRegistrar": return situacaoRegistrar_(b);
       case "fotoCadastro": return fotoCadastro_(b);
       case "configSalvar": return salvarConfig_(b.config || {});
       case "emailTeste": return emailDiario(true);
@@ -490,7 +493,9 @@ function listar_(est, usuariosDiario) {
   try { garantirGatilhoBackup_(); } catch (e) { }
   return { ok: true, senhaInfo: est, senhaUnica: true, prazo: PRAZO_CONFERENCIA, planilha: planilha_().getUrl(),
     ferramentas: ferramentas_(), kits: kits_(), pecas: pecas_(), tecnicos: usuariosDiario || [],
-    conferencias: ler_("conf").map(conf_), ocorrencias: ler_("oc").map(oc_), config: config_() };
+    conferencias: ler_("conf").map(conf_), ocorrencias: ler_("oc").map(oc_), config: config_(),
+    situacoes: ler_("sit").map(x => ({ uid: String(x.uid), em: String(x.em), codigo: String(x.codigo), ferramenta: String(x.ferramenta),
+      antes: String(x.situacao_antes || ""), situacao: String(x.situacao || ""), obs: String(x.obs || ""), foto: String(x.foto || "") })) };
 }
 
 function revisarConf_(b) {
@@ -546,6 +551,21 @@ function proximosCodigos_(n) {
   const out = []; for (let i = 1; i <= n; i++) out.push("FER-" + String(max + i).padStart(4, "0"));
   return out;
 }
+// registra a situação de uma peça com uma foto do estado dela (em uso, manutenção, baixada)
+function situacaoRegistrar_(b) {
+  const atual = ler_("pecas").find(x => String(x.codigo) === String(b.codigo));
+  if (!atual) return { ok: false, erro: "Peça não encontrada." };
+  if (["ativa", "manutencao", "baixada"].indexOf(b.situacao) < 0) return { ok: false, erro: "Situação inválida." };
+  if (!b.foto) return { ok: false, erro: "Tire ou escolha a foto do estado da peça." };
+  const em = agora_(), antes = String(atual.situacao || "ativa");
+  const foto = salvarArquivo_(b.foto, "image/jpeg", "Situação " + atual.codigo + " " + em.slice(0, 10) + " " + b.situacao + ".jpg");
+  gravar_("sit", { uid: Utilities.getUuid(), em: em, codigo: String(atual.codigo), ferramenta: String(atual.ferramenta),
+    situacao_antes: antes, situacao: b.situacao, obs: limpa_(b.obs, 500), foto: foto }, 0);
+  atual.situacao = b.situacao;
+  gravar_("pecas", atual, atual._linha);
+  return { ok: true, foto: foto };
+}
+
 // nº de patrimônio: compara sem espaços, pontos ou traços e sem diferença de maiúsculas
 const normPat_ = v => String(v == null ? "" : v).toUpperCase().replace(/[\s.\-\/]/g, "");
 // grava vários números de patrimônio de uma vez (lista de { codigo, patrimonio })
