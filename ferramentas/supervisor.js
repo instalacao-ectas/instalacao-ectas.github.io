@@ -16,7 +16,7 @@ const GRUPOS={permanente:"Kit (permanente)",almox:"Almoxarifado",individual:"Ind
 
 /* se o site foi atualizado e esta página ainda é a versão anterior guardada no navegador, recarrega sozinha uma vez */
 (async()=>{try{const h=await fetch("supervisor.html",{cache:"no-store"}).then(r=>r.text());const m=h.match(/supervisor\.js\?v=(\d+)/);
-  if(m&&m[1]!=="8"){const k="fer-recarregou-sup-"+m[1];if(!sessionStorage.getItem(k)){sessionStorage.setItem(k,"1");location.reload();}}}catch(e){}})();
+  if(m&&m[1]!=="9"){const k="fer-recarregou-sup-"+m[1];if(!sessionStorage.getItem(k)){sessionStorage.setItem(k,"1");location.reload();}}}catch(e){}})();
 let senha="",D=null;
 const S={tab:"painel",apF:"pendente",ocF:"abertas",uq:"",uKit:"",uOpen:null,arquivos:{},fotosConf:{}};
 
@@ -84,7 +84,10 @@ const pecaBy=c=>D.pecas.find(p=>p.codigo===c);
 const kitsAtivos=()=>D.kits.filter(k=>k.ativo);
 const confsOrd=()=>D.conferencias.slice().sort((a,b)=>b.criado_em.localeCompare(a.criado_em));
 const lastConf=kitId=>confsOrd().find(c=>c.kit===kitId);
-function confPend(c){const out=[];for(const t of perm()){const it=c.itens&&c.itens[t.id];if(!it)continue;if(it.q<t.qtd||it.s!=="ok")out.push({t,it});}return out;}
+// quantidade esperada: a que o app mandou na conferência; senão a do kit (lista nova) ou a fixa (lista antiga)
+const qk=(t,kitId)=>t.qtdKits?(+t.qtdKits[kitId]||0):t.qtd;
+const esperado=(t,it,kitId)=>it&&it.e!=null?+it.e:qk(t,kitId);
+function confPend(c){const out=[];for(const t of perm()){const it=c.itens&&c.itens[t.id];if(!it)continue;const e=esperado(t,it,c.kit);if(it.q<e||it.s!=="ok")out.push({t,it,e});}return out;}
 function unitCodes(c,toolId){if(!c.pecas)return"";const bad=Object.entries(c.pecas).filter(([k,v])=>v!=="ok"&&(pecaBy(k)||{}).ferramenta===toolId);if(!bad.length)return"";
   const L={falta:"faltando",dan:"danificada",man:"em manutenção"};return " — "+bad.map(([k,v])=>`<code class="k">${esc(k)}</code> ${L[v]||v}`).join(", ");}
 function kitState(k){
@@ -125,7 +128,7 @@ function vPainel(){
   <div class="grid">${st.map(x=>`<div class="card stack" style="gap:10px"><div class="row"><b style="font-size:20px">${esc(x.k.nome)}</b><span class="spacer"></span><span class="chip ${x.cls}">${x.label}</span></div>
    <div class="mini"><b>Responsável:</b> ${esc(x.k.responsavel||"não definido")}${x.k.local?"<br><b>Local:</b> "+esc(x.k.local):""}</div>
    <div class="mini">${x.c?`Última conferência ${agoTxt(x.c.criado_em)} por ${esc(x.c.tecnico)} (${esc(x.c.tipo.toLowerCase())})`:"Nenhuma conferência registrada."}</div>
-   ${(x.pend||[]).length?`<ul class="diffs">${x.pend.slice(0,6).map(({t,it})=>`<li>${esc(t.desc)}: ${it.q}/${t.qtd} · ${CONDS[it.s]||it.s}</li>`).join("")}${x.pend.length>6?`<li>e mais ${x.pend.length-6}</li>`:""}</ul>`:""}
+   ${(x.pend||[]).length?`<ul class="diffs">${x.pend.slice(0,6).map(({t,it,e})=>`<li>${esc(t.desc)}: ${it.q}/${e} · ${CONDS[it.s]||it.s}</li>`).join("")}${x.pend.length>6?`<li>e mais ${x.pend.length-6}</li>`:""}</ul>`:""}
    ${x.openOc?`<div><span class="chip c-bad">${x.openOc} ocorrência(s) aberta(s)</span></div>`:""}</div>`).join("")}</div>
   <div><h3 style="margin-bottom:10px">Últimos registros</h3>${ult.length?`<div class="list">${ult.map(({k,x})=>k==="c"?recConf(x,false):recOc(x,false)).join("")}</div>`:`<div class="empty">Ainda não há conferências nem ocorrências. Elas aparecem aqui assim que os técnicos começarem a usar o app.</div>`}</div></div>`;
 }
@@ -136,7 +139,7 @@ function recConf(c,sup){
   const [st,cls]=ST_CONF[c.status]||ST_CONF.pendente,pend=confPend(c);
   return `<div class="rec" data-conf="${esc(c.uid)}"><div class="row"><h3>${esc(c.tipo)} · ${esc(c.kit_nome)}</h3><span class="spacer"></span><span class="chip ${cls}">${st}</span></div>
   <div class="meta">${esc(c.tecnico)}${c.local?" · "+esc(c.local):""} · ${fmtDate(c.criado_em)} · ${c.lidas} de ${c.esperadas} etiquetas lidas</div>
-  ${pend.length?`<div><span class="chip c-warn">${pend.length} pendência${pend.length>1?"s":""}</span>${listaLonga(pend.map(({t,it})=>`<li>${esc(t.desc)}: ${it.q}/${t.qtd} · ${CONDS[it.s]||it.s}${unitCodes(c,t.id)}</li>`))}</div>`:`<div><span class="chip c-ok">Kit completo</span></div>`}
+  ${pend.length?`<div><span class="chip c-warn">${pend.length} pendência${pend.length>1?"s":""}</span>${listaLonga(pend.map(({t,it,e})=>`<li>${esc(t.desc)}: ${it.q}/${e} · ${CONDS[it.s]||it.s}${unitCodes(c,t.id)}</li>`))}</div>`:`<div><span class="chip c-ok">Kit completo</span></div>`}
   ${c.alheias&&c.alheias.length?`<div class="mini"><span class="chip c-warn">Peças de outro kit</span> ${c.alheias.map(x=>{const u=pecaBy(x);return `${esc(x)} (${esc((toolById(u&&u.ferramenta)||{}).desc||"")}, ${esc(kitName(u&&u.kit))})`;}).join("; ")}</div>`:""}
   ${c.obs?`<div class="mini"><b>Obs.:</b> ${esc(c.obs)}</div>`:""}
   ${sup&&c.fotos&&c.fotos.length?(S.fotosConf[c.uid]?`<div class="stack" style="gap:6px"><b class="mini">📷 Fotos da conferência ao lado da foto de cadastro</b><div class="fotos-conf">${c.fotos.map(f=>{const t=toolById(f.ferramenta),cad=fotoCadastroDe(f.ferramenta,f.codigo);
@@ -383,13 +386,13 @@ after.ocs=()=>{
 
 /* ---------- matriz ---------- */
 function matriz(){const kits=kitsAtivos(),last=Object.fromEntries(kits.map(k=>[k.id,lastConf(k.id)]));
-  return {kits,last,rows:perm().map(t=>({t,cells:kits.map(k=>{const c=last[k.id];return c&&c.itens?c.itens[t.id]||null:null;})}))};}
+  return {kits,last,rows:perm().map(t=>({t,cells:kits.map(k=>{const c=last[k.id];const it=c&&c.itens?c.itens[t.id]:null;return it?{...it,e:esperado(t,it,k.id)}:null;})})).filter(r=>!r.t.qtdKits||r.cells.some(Boolean)||kits.some(k=>qk(r.t,k.id)>0))};}
 function vMatriz(){
   const {kits,last,rows}=matriz();
   return `<div class="stack"><div class="row"><div><h2>Matriz por kit</h2><p class="lead" style="margin:0">Quantidade encontrada na última conferência de cada kit, no formato da planilha.</p></div><span class="spacer"></span><button type="button" class="btn" id="xlsMatriz">Baixar Excel da matriz</button><button type="button" class="btn" id="xlsHist">Baixar histórico completo</button></div>
-  <div class="tablebox"><table><thead><tr><th class="num">Item</th><th>Descrição</th><th class="num">Qtd fixa</th>${kits.map(k=>`<th class="num">${esc(k.nome)}</th>`).join("")}</tr>
+  <div class="tablebox"><table><thead><tr><th class="num">Item</th><th>Descrição</th><th class="num">Qtd</th>${kits.map(k=>`<th class="num">${esc(k.nome)}</th>`).join("")}</tr>
   <tr><th></th><th style="text-transform:none;letter-spacing:0;font-weight:500">Última conferência</th><th></th>${kits.map(k=>`<th class="num" style="text-transform:none;letter-spacing:0;font-weight:500">${last[k.id]?fmtDia(last[k.id].criado_em):"—"}</th>`).join("")}</tr></thead>
-  <tbody>${rows.map(({t,cells})=>`<tr><td class="num">${t.item||""}</td><td>${esc(t.desc)}</td><td class="num">${t.qtd}</td>${cells.map(it=>!it?`<td class="num cell-na">—</td>`:`<td class="num ${it.q<t.qtd?"cell-bad":it.s!=="ok"?"cell-warn":"cell-ok"}" title="${CONDS[it.s]||""}">${it.q}${it.s!=="ok"?" · "+(CONDS[it.s]||it.s).split(" ")[0].toLowerCase():""}</td>`).join("")}</tr>`).join("")}</tbody></table></div>
+  <tbody>${rows.map(({t,cells})=>`<tr><td class="num">${t.item||""}</td><td>${esc(t.desc)}</td><td class="num">${t.qtdKits?"por kit":t.qtd}</td>${cells.map(it=>!it?`<td class="num cell-na">—</td>`:`<td class="num ${it.q<it.e?"cell-bad":it.s!=="ok"?"cell-warn":"cell-ok"}" title="${CONDS[it.s]||""}">${it.q}${t.qtdKits?"/"+it.e:""}${it.s!=="ok"?" · "+(CONDS[it.s]||it.s).split(" ")[0].toLowerCase():""}</td>`).join("")}</tr>`).join("")}</tbody></table></div>
   <div class="row mini"><span class="chip c-ok">Completo</span><span class="chip c-warn">Quantidade certa, estado com problema</span><span class="chip c-bad">Faltando</span></div></div>`;
 }
 function carregarLib(src,glob){return window[glob]?Promise.resolve():new Promise((ok,no)=>{const s=document.createElement("script");s.src=src;s.onload=ok;s.onerror=()=>no(new Error("Não consegui carregar "+src));document.head.appendChild(s);});}
@@ -398,12 +401,12 @@ const hoje=()=>new Date().toISOString().slice(0,10);
 after.matriz=()=>{
   $("xlsMatriz").onclick=async()=>{try{await carregarLib("../lib/xlsx.full.min.js","XLSX");const {kits,last,rows}=matriz();
     const aoa=[["Item","Descrição","Qtd fixa",...kits.map(k=>k.nome)],["","Última conferência","",...kits.map(k=>last[k.id]?fmtDate(last[k.id].criado_em):"")],
-      ...rows.map(({t,cells})=>[t.item||"",t.desc,t.qtd,...cells.map(it=>it?`${it.q} (${CONDS[it.s]||it.s})`:"")])];
+      ...rows.map(({t,cells})=>[t.item||"",t.desc,t.qtdKits?"por kit":t.qtd,...cells.map(it=>it?`${it.q}${t.qtdKits?"/"+it.e:""} (${CONDS[it.s]||it.s})`:"")])];
     const wb=XLSX.utils.book_new();const ws=XLSX.utils.aoa_to_sheet(aoa);ws["!cols"]=[{wch:6},{wch:52},{wch:9},...kits.map(()=>({wch:16}))];XLSX.utils.book_append_sheet(wb,ws,"Matriz");
     baixar(new Blob([XLSX.write(wb,{type:"array",bookType:"xlsx"})]),`matriz-ferramentas-${hoje()}.xlsx`);}catch(e){toast(e.message);}};
   $("xlsHist").onclick=async()=>{try{await carregarLib("../lib/xlsx.full.min.js","XLSX");const wb=XLSX.utils.book_new();
     const cf=confsOrd().map(c=>({"Feita em":fmtDate(c.criado_em),"Kit":c.kit_nome,"Tipo":c.tipo,"Técnico":c.tecnico,"Obra / local":c.local,"Etiquetas lidas":c.lidas,"Etiquetas esperadas":c.esperadas,"Pendências":c.pendencias,
-      "Itens com pendência":confPend(c).map(({t,it})=>`${t.desc} ${it.q}/${t.qtd} ${CONDS[it.s]||it.s}`).join("; "),"Peças não lidas":Object.entries(c.pecas||{}).filter(([k,v])=>v==="falta").map(([k])=>k).join(", "),
+      "Itens com pendência":confPend(c).map(({t,it,e})=>`${t.desc} ${it.q}/${e} ${CONDS[it.s]||it.s}`).join("; "),"Peças não lidas":Object.entries(c.pecas||{}).filter(([k,v])=>v==="falta").map(([k])=>k).join(", "),
       "Peças de outro kit":(c.alheias||[]).join(", "),"Observações":c.obs,"Situação":(ST_CONF[c.status]||[c.status])[0],"Comentário":c.comentario}));
     const oc=D.ocorrencias.slice().sort((a,b)=>b.criado_em.localeCompare(a.criado_em)).map(o=>({"Feita em":fmtDate(o.criado_em),"Tipo":o.tipo,"Ferramenta":o.ferramenta_desc,"Código":o.codigo,"Quantidade":o.qtd,"Kit":o.kit_nome,"Técnico":o.tecnico,"Descrição":o.descricao,"Situação":(ST_OC[o.status]||[o.status])[0],"Providência":o.comentario}));
     const pc=D.pecas.map(p=>({"Código":p.codigo,"Ferramenta":(toolById(p.ferramenta)||{}).desc||"","Kit":kitName(p.kit),"Situação":(SIT[p.situacao]||[p.situacao])[0],"Observação":p.obs}));
@@ -478,7 +481,8 @@ function fichaHtml(u,LR){
   <div class="mini">${esc(kitName(u.kit))}${k&&k.responsavel?" · responsável: "+esc(k.responsavel):""} · última leitura: ${LR[u.codigo]?fmtDate(LR[u.codigo]):"nunca lida"}</div>
   ${h.length?`<ul>${h.map(x=>`<li><span class="mini">${fmtDate(x.em)}</span> ${x.h}</li>`).join("")}</ul>`:`<div class="mini" style="margin-top:6px">Sem registros ainda.</div>`}</div>`;
 }
-function normCode(raw){const s=String(raw||"").toUpperCase().replace(/\s+/g,"");const m=s.match(/FER-?(\d{1,6})/);if(m)return "FER-"+m[1].padStart(4,"0");if(/^\d{1,6}$/.test(s))return "FER-"+s.padStart(4,"0");return s;}
+// número de controle definido pelo supervisor (como está) ou FER-xxxx
+function normCode(raw){const s=String(raw||"").toUpperCase().replace(/\s+/g,"");if(D&&D.pecas.some(p=>p.codigo===s))return s;const m=s.match(/FER-?(\d{1,6})/);if(m)return "FER-"+m[1].padStart(4,"0");if(/^\d{1,6}$/.test(s))return "FER-"+s.padStart(4,"0");return s;}
 function etiquetasSel(){
   const w=$("lbWhich").value;let us=D.pecas.filter(u=>u.situacao!=="baixada");
   if(w.startsWith("kit:"))us=us.filter(u=>u.kit===w.slice(4));
@@ -493,7 +497,7 @@ async function pdfEtiquetas(units,start){
     const qr=window.qrcode(0,"M");qr.addData(u.codigo);qr.make();const n=qr.getModuleCount(),cs=Q/n,x0=x+3,y0=y+(H-Q)/2;
     doc.setFillColor(0,0,0);for(let r=0;r<n;r++)for(let c=0;c<n;c++)if(qr.isDark(r,c))doc.rect(x0+c*cs,y0+r*cs,cs+.02,cs+.02,"F");
     const tx=x0+Q+3,tw=x+W-tx-2.5,t=toolById(u.ferramenta);
-    doc.setTextColor(0,43,73);doc.setFont("helvetica","bold");doc.setFontSize(14);doc.text(u.codigo,tx,y+8.6);
+    doc.setTextColor(0,43,73);doc.setFont("helvetica","bold");let fz=14;doc.setFontSize(fz);while(fz>7&&doc.getTextWidth(u.codigo)>tw){fz-=.5;doc.setFontSize(fz);}doc.text(u.codigo,tx,y+8.6);
     // com patrimônio: descrição em até 2 linhas e o nº de patrimônio em negrito logo abaixo
     doc.setTextColor(20,20,20);doc.setFont("helvetica","normal");doc.setFontSize(7.2);doc.text(doc.splitTextToSize(t?t.desc:"",tw).slice(0,u.patrimonio?2:3),tx,y+12.6,{lineHeightFactor:1.15});
     if(u.patrimonio){doc.setFont("helvetica","bold");doc.setFontSize(7.6);doc.setTextColor(0,43,73);doc.text(doc.splitTextToSize("Patrimônio: "+u.patrimonio,tw)[0],tx,y+19.3);doc.setFont("helvetica","normal");}
@@ -536,6 +540,8 @@ function vCadastro(){
   const ts=D.tecnicos;
   const tools=D.ferramentas.slice().sort((a,b)=>(a.grupo>b.grupo?1:a.grupo<b.grupo?-1:(a.item||999)-(b.item||999)));
   return `<div class="stack"><div><h2>Cadastro</h2><p class="lead">Técnicos, kits e a lista padrão de ferramentas. Na coluna Patrimônio (🏷) você cadastra o número de patrimônio de cada peça; na coluna Situação por foto (📷) vê cada peça com a foto de cadastro e a última foto. Clique no quadrado da coluna Foto para cadastrar a foto de cada ferramenta; marque "Exige foto" nas que o técnico deve fotografar em toda conferência e clique em Salvar na linha.</p></div>
+  <div class="card stack" style="border-color:var(--accent)"><div class="row"><h3>Refazer a lista do zero</h3><span class="spacer"></span><a class="btn primary small" href="nova-lista.html">${D.rascunho?"Continuar a lista nova":"Começar lista nova"}</a></div>
+   <p class="mini" style="margin:0">Monte a lista nova kit por kit (nome do kit, ferramentas com foto, quantidade e nº de controle da etiqueta definido por você). Enquanto não publicar, os técnicos continuam com a lista atual.${D.rascunho?` <b>Lista nova em andamento:</b> ${D.rascunho.kits} kit(s), ${D.rascunho.itens} item(ns), salva em ${fmtDate(D.rascunho.atualizado_em)}.`:""}${D.listaPublicada?` Última lista publicada em ${fmtDate(D.listaPublicada)}.`:""}</p></div>
   <div class="card stack"><div class="row"><h3>Técnicos (usuários do app)</h3><span class="spacer"></span><a class="btn small" href="../supervisor.html">Cadastrar no Diário de Obra</a></div>
    <p class="mini" style="margin:0">Os técnicos entram com o mesmo usuário e senha do Diário de Obra. Para cadastrar, trocar senha ou desativar, use o Painel do Diário de Obra: vale para os dois aplicativos.</p>
    ${ts.length?`<div class="tablebox"><table><thead><tr><th>Usuário</th><th>Nome</th><th>Situação</th><th></th></tr></thead><tbody id="tecRows">${ts.map(t=>`<tr data-login="${esc(t.login)}"><td><code class="k">${esc(t.login)}</code></td><td>${esc(t.nome)}</td><td>${t.ativo?`<span class="chip c-ok">Ativo</span>`:`<span class="chip c-mute">Desativado</span>`}</td><td></td></tr>`).join("")}</tbody></table></div>`:`<div class="empty">Nenhum técnico cadastrado no Diário de Obra.</div>`}</div>

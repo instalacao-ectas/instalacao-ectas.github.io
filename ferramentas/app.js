@@ -6,7 +6,7 @@ const CENTRAL=window.CENTRAL_FERRAMENTAS||{};
 const temCentral=()=>!!(CENTRAL.url&&CENTRAL.chave);
 /* se o site foi atualizado e esta página ainda é a versão anterior guardada no navegador, recarrega sozinha uma vez */
 (async()=>{try{const h=await fetch("index.html",{cache:"no-store"}).then(r=>r.text());const m=h.match(/app\.js\?v=(\d+)/);
-  if(m&&m[1]!=="6"){const k="fer-recarregou-app-"+m[1];if(!sessionStorage.getItem(k)){sessionStorage.setItem(k,"1");location.reload();}}}catch(e){}})();
+  if(m&&m[1]!=="7"){const k="fer-recarregou-app-"+m[1];if(!sessionStorage.getItem(k)){sessionStorage.setItem(k,"1");location.reload();}}}catch(e){}})();
 
 const TIPOS_CONF=["Retirada do kit","Devolução do kit","Conferência periódica"];
 const CONDS={ok:"Conforme",dan:"Danificada",man:"Em manutenção",falta:"Faltando"};
@@ -212,7 +212,10 @@ const kitName=id=>(kitById(id)||{}).nome||"outro kit";
 const kitsMeus=()=>D().kits.filter(k=>k.permitido);
 const unitByCode=c=>D().pecas.find(u=>u.codigo===c);
 const unitsOf=(kitId,toolId)=>D().pecas.filter(u=>u.kit===kitId&&u.situacao!=="baixada"&&(!toolId||u.ferramenta===toolId)).sort((a,b)=>a.codigo.localeCompare(b.codigo));
-function normCode(raw){const s=String(raw||"").toUpperCase().replace(/\s+/g,"");const m=s.match(/FER-?(\d{1,6})/);if(m)return "FER-"+m[1].padStart(4,"0");if(/^\d{1,6}$/.test(s))return "FER-"+s.padStart(4,"0");return s;}
+// quantidade esperada da ferramenta no kit (lista nova: por kit; lista antiga: fixa)
+const qk=(t,kitId)=>t.qtdKits?(+t.qtdKits[kitId]||0):t.qtd;
+// código lido ou digitado: número de controle definido pelo supervisor (como está) ou FER-xxxx
+function normCode(raw){const s=String(raw||"").toUpperCase().replace(/\s+/g,"");if(D()&&D().pecas.some(u=>u.codigo===s))return s;const m=s.match(/FER-?(\d{1,6})/);if(m)return "FER-"+m[1].padStart(4,"0");if(/^\d{1,6}$/.test(s))return "FER-"+s.padStart(4,"0");return s;}
 
 /* ---------- telas ---------- */
 document.querySelector("#nav").addEventListener("click",e=>{const b=e.target.closest("[data-tab]");if(!b)return;S.tab=b.dataset.tab;render();window.scrollTo(0,0);if(S.tab==="meus")atualizarMeus();});
@@ -246,15 +249,15 @@ const after={};
 
 /* ---------- conferência ---------- */
 function novoRascunho(kitId){
-  const itens={};for(const t of perm())itens[t.id]={q:t.qtd,s:"ok"};
+  const itens={};for(const t of perm())itens[t.id]={q:qk(t,kitId),s:"ok"};
   return {kitId,tipo:TIPOS_CONF[0],local:ls.get("fer-local",""),obs:"",itens,un:{},alheias:[],aceite:false,sig:null,inicio:new Date().toISOString()};
 }
 let tRasc=null;
 function salvarRascunho(agora){clearTimeout(tRasc);const f=()=>kvPut("rascunho",S.draft).catch(()=>{});if(agora)f();else tRasc=setTimeout(f,400);}
 function modelo(d){
   let req=0,done=0,manPend=0;
-  const rows=perm().map(t=>{const us=unitsOf(d.kitId,t.id);
-    if(!us.length){const it=d.itens[t.id]||(d.itens[t.id]={q:t.qtd,s:"ok"});const p=it.q<t.qtd||it.s!=="ok";if(p)manPend++;return {t,manual:true,it,pend:p};}
+  const rows=perm().filter(t=>qk(t,d.kitId)>0||unitsOf(d.kitId,t.id).length).map(t=>{const us=unitsOf(d.kitId,t.id),E=qk(t,d.kitId);
+    if(!us.length){const it=d.itens[t.id]||(d.itens[t.id]={q:E,s:"ok"});const p=it.q<E||it.s!=="ok";if(p)manPend++;return {t,manual:true,it,pend:p};}
     const need=us.filter(u=>u.situacao!=="manutencao"),got=need.filter(u=>d.un[u.codigo]);req+=need.length;done+=got.length;
     const dan=got.some(u=>d.un[u.codigo]==="dan");
     return {t,us,need,got,dan,pend:got.length<need.length||dan};});
@@ -319,10 +322,10 @@ function unitBlock(r,d){
     return `<div class="unit ${st==="dan"?"dan":"ok"}${pf&&!(d.fotos||{})[u.codigo]?" semfoto":""}" data-u="${u.codigo}"><code>${u.codigo}</code>${u.patrimonio?`<span class="mini" title="Nº de patrimônio">Pat. ${esc(u.patrimonio)}</span>`:""}<select data-ucond aria-label="Estado de ${u.codigo}"><option value="ok" ${st==="ok"?"selected":""}>Lida · conforme</option><option value="dan" ${st==="dan"?"selected":""}>Lida · danificada</option></select>${pf?fotoCtl(d,u.codigo,st==="dan"?"danificada":"exige"):""}${u.foto?refFotoBtn(t,u):""}<button type="button" class="linkbtn" data-undo>desfazer</button></div>`;}).join("")}</div></div>`;
 }
 function itemRow(t,it){
-  const p=it.q<t.qtd||it.s!=="ok",d=S.draft,pf=it.q>0&&(it.s==="dan"||t.exigeFoto);
+  const d=S.draft,E=qk(t,d.kitId),p=it.q<E||it.s!=="ok",pf=it.q>0&&(it.s==="dan"||t.exigeFoto);
   return `<div class="item ${p?"pend":""}" data-id="${t.id}"><span class="n">${String(t.item||"").padStart(2,"0")}</span>
-  <div class="d">${esc(t.desc)}<small>Sem etiqueta · quantidade fixa: ${t.qtd}${t.exigeFoto?` · <span class="exige">📷 exige foto</span>`:""} ${refFotoBtn(t)}</small>${pf?`<div style="margin-top:6px">${fotoCtl(d,"t:"+t.id,it.s==="dan"?"danificada":"exige")}</div>`:""}</div>
-  <div class="ctl"><div class="step"><button type="button" data-dq="-1" aria-label="Diminuir">−</button><span>${it.q}/${t.qtd}</span><button type="button" data-dq="1" aria-label="Aumentar">+</button></div>
+  <div class="d">${esc(t.desc)}<small>Sem etiqueta · quantidade: ${E}${t.exigeFoto?` · <span class="exige">📷 exige foto</span>`:""} ${refFotoBtn(t)}</small>${pf?`<div style="margin-top:6px">${fotoCtl(d,"t:"+t.id,it.s==="dan"?"danificada":"exige")}</div>`:""}</div>
+  <div class="ctl"><div class="step"><button type="button" data-dq="-1" aria-label="Diminuir">−</button><span>${it.q}/${E}</span><button type="button" data-dq="1" aria-label="Aumentar">+</button></div>
   <select class="cond" data-cond aria-label="Estado">${Object.entries(CONDS).map(([k,v])=>`<option value="${k}" ${it.s===k?"selected":""}>${v}</option>`).join("")}</select></div></div>`;
 }
 function stickyConf(){
@@ -367,7 +370,7 @@ after.conferir=()=>{
   window.tirarFoto=chave=>{fotoAlvo=chave;const fi=$("fotoConf");fi.value="";fi.click();};
   $("items").addEventListener("change",e=>{
     const uc=e.target.closest("[data-ucond]");if(uc){d.un[uc.closest("[data-u]").dataset.u]=uc.value;salvarRascunho();render();return;}
-    const s=e.target.closest("[data-cond]");if(!s)return;const row=s.closest("[data-id]"),t=toolById(row.dataset.id),it=d.itens[t.id];it.s=s.value;if(s.value==="falta"&&it.q===t.qtd)it.q=Math.max(0,t.qtd-1);row.outerHTML=itemRow(t,it);salvarRascunho();stickyConf();});
+    const s=e.target.closest("[data-cond]");if(!s)return;const row=s.closest("[data-id]"),t=toolById(row.dataset.id),it=d.itens[t.id];it.s=s.value;const E=qk(t,d.kitId);if(s.value==="falta"&&it.q===E)it.q=Math.max(0,E-1);row.outerHTML=itemRow(t,it);salvarRascunho();stickyConf();});
   assinatura($("sig"),d);
 };
 function assinatura(cv,d){
@@ -393,12 +396,12 @@ async function enviarConf(){
   const fotos=fotosNecessarias(d).map(n=>({ferramenta:n.ferramenta,codigo:n.codigo,motivo:n.motivo,foto:d.fotos[n.chave].split(",")[1]}));
   const M=modelo(d),itens={},pecas={};
   for(const r of M.rows){
-    if(r.manual){itens[r.t.id]={q:r.it.q,s:r.it.s};continue;}
+    if(r.manual){itens[r.t.id]={q:r.it.q,s:r.it.s,e:qk(r.t,d.kitId)};continue;}
     for(const u of r.us)pecas[u.codigo]=u.situacao==="manutencao"?"man":(d.un[u.codigo]||"falta");
     const missing=r.need.length-r.got.length,maint=r.us.length-r.need.length;
-    itens[r.t.id]={q:r.got.length,s:r.dan?"dan":missing?"falta":maint?"man":"ok"};
+    itens[r.t.id]={q:r.got.length,s:r.dan?"dan":missing?"falta":maint?"man":"ok",e:r.us.length};
   }
-  const pend=perm().filter(t=>itens[t.id]&&(itens[t.id].q<t.qtd||itens[t.id].s!=="ok")).length;
+  const pend=Object.values(itens).filter(it=>it.q<it.e||it.s!=="ok").length;
   const uid=novoUid("conf"),agora=new Date().toISOString();
   const reg={uid,tipoReg:"conf",login:s.usuario,criado_em:agora,estado:"fila",
     resumo:{kit_nome:kitName(d.kitId),tipo:d.tipo,local:d.local,lidas:M.done,esperadas:M.req,pendencias:pend,itens,pecas,alheias:[...d.alheias],nfotos:fotos.length},
@@ -549,9 +552,9 @@ after.ocorrencia=()=>{
 
 /* ---------- meus registros ---------- */
 function linhasPend(itens,pecas){
-  const out=[];for(const t of perm()){const it=itens&&itens[t.id];if(!it)continue;if(it.q<t.qtd||it.s!=="ok"){
+  const out=[];for(const t of perm()){const it=itens&&itens[t.id];if(!it)continue;const E=it.e!=null?it.e:t.qtd;if(it.q<E||it.s!=="ok"){
     const cods=pecas?Object.entries(pecas).filter(([k,v])=>v!=="ok"&&(unitByCode(k)||{}).ferramenta===t.id).map(([k,v])=>`${k} ${v==="falta"?"faltando":v==="dan"?"danificada":"em manutenção"}`):[];
-    out.push(`<li>${esc(t.desc)}: ${it.q}/${t.qtd} · ${CONDS[it.s]||it.s}${cods.length?" ("+esc(cods.join(", "))+")":""}</li>`);}}
+    out.push(`<li>${esc(t.desc)}: ${it.q}/${E} · ${CONDS[it.s]||it.s}${cods.length?" ("+esc(cods.join(", "))+")":""}</li>`);}}
   return out;
 }
 function cartaoConf(c,estado,extra){
